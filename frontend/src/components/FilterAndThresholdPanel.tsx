@@ -1,0 +1,163 @@
+import { useState, type FormEvent } from 'react'
+import type { DashboardQuery, DashboardView } from '../api/dashboard'
+
+interface FilterAndThresholdPanelProps {
+  view: DashboardView
+  query: DashboardQuery
+  onUpdate: (next: DashboardQuery) => void
+  onReset: () => void
+}
+
+export function FilterAndThresholdPanel({
+  view,
+  query,
+  onUpdate,
+  onReset,
+}: FilterAndThresholdPanelProps) {
+  const hasParameters = Boolean(view.parameters && view.parameters.length > 0)
+  const hasControls = Boolean(view.controls && view.controls.length > 0)
+  const hasKeyword = Boolean(view.keyword_search)
+
+  const [paramDraft, setParamDraft] = useState(() =>
+    Object.fromEntries((view.parameters ?? []).map((p) => [p.key, String(p.value)]))
+  )
+  const [keywordDraft, setKeywordDraft] = useState(() =>
+    typeof query.keyword === 'string' ? query.keyword : ''
+  )
+
+  if (!hasParameters && !hasControls && !hasKeyword) {
+    return null
+  }
+
+  const handleParamSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!view.parameters) return
+    const numericValues: Record<string, number> = {}
+    for (const p of view.parameters) {
+      const parsed = Number(paramDraft[p.key])
+      if (!Number.isNaN(parsed)) {
+        numericValues[p.key] = parsed
+      }
+    }
+    onUpdate({ ...query, ...numericValues })
+  }
+
+  const handleKeywordSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    onUpdate({ ...query, keyword: keywordDraft.trim() || null })
+  }
+
+  const hasActiveFilters = Object.keys(query).length > 0
+
+  return (
+    <section className="filter-threshold-panel" aria-labelledby="filter-threshold-heading">
+      <div className="filter-threshold-header">
+        <div className="panel-title-cluster">
+          <span className="panel-icon-badge" aria-hidden="true">⚙️</span>
+          <div>
+            <h2 id="filter-threshold-heading">Ngưỡng kiểm định & Bộ lọc phân tích</h2>
+            <p className="panel-description">
+              Thiết lập các ngưỡng đánh giá và tiêu chí lọc. Tính toán lại nghiệp vụ trực tiếp trên máy chủ backend.
+            </p>
+          </div>
+        </div>
+        {hasActiveFilters && (
+          <button type="button" className="btn-reset-filters" onClick={onReset}>
+            ✕ Xóa bộ lọc và tham số
+          </button>
+        )}
+      </div>
+
+      <div className="filter-threshold-body">
+        {/* Threshold parameters form */}
+        {hasParameters && view.parameters && (
+          <form className="threshold-form-block" onSubmit={handleParamSubmit}>
+            <h3 className="sub-panel-title">Ngưỡng kiểm định Backend</h3>
+            <div className="threshold-inputs-grid">
+              {view.parameters.map((parameter) => (
+                <div key={parameter.key} className="form-field-group">
+                  <label htmlFor={`param-${parameter.key}`} className="field-label">
+                    {parameter.label}
+                    {parameter.key.includes('share') ? ' (%)' : parameter.key.includes('count') ? ' (box)' : ''}
+                  </label>
+                  <div className="input-with-affix">
+                    <input
+                      id={`param-${parameter.key}`}
+                      type="number"
+                      step="any"
+                      required
+                      className="field-input"
+                      value={paramDraft[parameter.key] ?? ''}
+                      onChange={(event) =>
+                        setParamDraft({ ...paramDraft, [parameter.key]: event.target.value })
+                      }
+                    />
+                    {parameter.key.includes('share') && <span className="input-unit">%</span>}
+                    {parameter.key.includes('count') && <span className="input-unit">box</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="form-action-row">
+              <button type="submit" className="btn-primary">
+                Áp dụng tham số tại backend
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Dimension & Category controls */}
+        {hasControls && (
+          <div className="controls-form-block">
+            <h3 className="sub-panel-title">Bộ lọc thuộc tính</h3>
+            <div className="controls-grid">
+              {view.controls.map((control) => (
+                <div key={control.key} className="form-field-group">
+                  <label htmlFor={`ctrl-${control.key}`} className="field-label">
+                    {control.label}
+                  </label>
+                  <select
+                    id={`ctrl-${control.key}`}
+                    className="field-select"
+                    value={typeof query[control.key] === 'string' ? (query[control.key] as string) : control.value ?? ''}
+                    onChange={(event) =>
+                      onUpdate({ ...query, [control.key]: event.target.value || null })
+                    }
+                  >
+                    <option value="">Tất cả</option>
+                    {control.choices.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choice}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Keyword Search */}
+        {hasKeyword && (
+          <form className="keyword-search-block" onSubmit={handleKeywordSubmit}>
+            <div className="form-field-group">
+              <label htmlFor="search-keyword" className="field-label">Tìm tên ảnh</label>
+              <div className="search-input-group">
+                <input
+                  id="search-keyword"
+                  className="field-input"
+                  placeholder="Nhập tên ảnh..."
+                  value={keywordDraft}
+                  onChange={(event) => setKeywordDraft(event.target.value)}
+                />
+                <button type="submit" className="btn-primary">
+                  Tìm qua backend
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+    </section>
+  )
+}
