@@ -28,6 +28,10 @@ export function BrowserDatasetUploader() {
   const [resultRevision, setResultRevision] = useState<number | null>(null)
 
 
+  const [cachedUploadId, setCachedUploadId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem('cvat_active_upload_id') } catch { return null }
+  })
+
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setError(null)
     setResult(null)
@@ -102,13 +106,19 @@ export function BrowserDatasetUploader() {
     try {
       const uploadResult = await uploadBrowserDataset({
         file: selectedFile,
-        onUpload: (id) => { activeUpload.current = id },
+        onUpload: (id) => {
+          activeUpload.current = id
+          setCachedUploadId(id)
+          try { sessionStorage.setItem('cvat_active_upload_id', id) } catch { /* ignore */ }
+        },
         onProgress: (p) => { if (!controller.signal.aborted && (request === null || verifiedResults?.isCurrentRequest(request))) setProgress(p) },
         signal: controller.signal,
       })
 
       if (request !== null && !verifiedResults?.isCurrentRequest(request)) return
       if (controller.signal.aborted) return
+      try { sessionStorage.removeItem('cvat_active_upload_id') } catch { /* ignore */ }
+      setCachedUploadId(null)
       setResultRevision(request)
       setResult(uploadResult)
       // Publish raw API analysis only for the still-current upload request
@@ -132,23 +142,37 @@ export function BrowserDatasetUploader() {
     }
   }
 
-  function handleCancel() {
-    const id = activeUpload.current
+  async function handleCancel(targetUploadId?: string) {
+    const id = targetUploadId || activeUpload.current || cachedUploadId || (() => {
+      try { return sessionStorage.getItem('cvat_active_upload_id') } catch { return null }
+    })()
     const phase = progress?.phase
     if (requestRef.current !== null) verifiedResults?.failRequest(requestRef.current, 'Đã dừng chờ ở trình duyệt; kiểm tra trạng thái server trước retry.')
     abortControllerRef.current?.abort()
     abortControllerRef.current = null
     setBusy(false)
     setProgress(null)
+    if (id) {
+      try { sessionStorage.removeItem('cvat_active_upload_id') } catch { /* ignore */ }
+      setCachedUploadId(null)
+    }
     if (id && phase === 'validating_dataset') {
-      void browserJson(`/uploads/${encodeURIComponent(id)}/dataset/cancel`, { method: 'POST' })
-        .then(() => setError('Server đã nhận yêu cầu hủy validation; worker có thể còn đang dừng.'))
-        .catch(() => setError('Chưa xác nhận cancellation; không tự retry validation.'))
-    } else if (id && (phase === 'uploading' || phase === 'creating_session')) {
-      void browserJson(`/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' })
-        .then(() => setError('Server đã xác nhận hủy upload của session này.'))
-        .catch(() => setError('Chưa xác nhận hủy upload; kiểm tra status trước thao tác tiếp.'))
-    } else setError('Chỉ dừng chờ ở trình duyệt. Server có thể tiếp tục; không tự hủy hoặc tạo job mới.')
+      try {
+        await browserJson(`/uploads/${encodeURIComponent(id)}/dataset/cancel`, { method: 'POST' })
+        setError('Server đã nhận yêu cầu hủy validation; worker có thể còn đang dừng.')
+      } catch {
+        setError('Chưa xác nhận cancellation; không tự retry validation.')
+      }
+    } else if (id) {
+      try {
+        await browserJson(`/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' })
+        setError('Đã hủy phiên upload bị gián đoạn thành công. Bây giờ bạn có thể chọn tệp và tải lên lại.')
+      } catch {
+        setError('Chưa xác nhận hủy upload trên server; kiểm tra trạng thái trước thao tác tiếp.')
+      }
+    } else {
+      setError('Chỉ dừng chờ ở trình duyệt. Server có thể tiếp tục; không tự hủy hoặc tạo job mới.')
+    }
   }
 
   function handleReset() {
@@ -271,7 +295,26 @@ export function BrowserDatasetUploader() {
       )}
 
       {/* Error display */}
-      {error && <ErrorState message={error} />}
+      {error && (
+        <div className="upload-error-container">
+          <ErrorState message={error} />
+          {error.includes('ONE_ACTIVE_UPLOAD') && (
+            <div className="upload-active-recovery" style={{ marginTop: '0.75rem', padding: '0.75rem', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem', color: 'var(--text-secondary, #94a3b8)' }}>
+                Hệ thống giới hạn 1 phiên tải lên đồng thời. Phiên trước có thể bị gián đoạn do tải lại trang hoặc rớt mạng.
+              </p>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
+                onClick={() => void handleCancel()}
+              >
+                Hủy phiên đang gián đoạn & Thử lại
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="uploader-actions">
@@ -285,7 +328,7 @@ export function BrowserDatasetUploader() {
         </button>
 
         {busy && (
-          <button type="button" className="btn-cancel" onClick={handleCancel}>
+          <button type="button" className="btn-cancel" onClick={() => void handleCancel()}>
             Hủy thao tác
           </button>
         )}
