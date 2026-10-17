@@ -24,6 +24,7 @@ export function FilterAndThresholdPanel({
   const [keywordDraft, setKeywordDraft] = useState(() =>
     typeof query.keyword === 'string' ? query.keyword : ''
   )
+  const [isExpanded, setIsExpanded] = useState(true)
 
   if (!hasParameters && !hasControls && !hasKeyword) {
     return null
@@ -48,27 +49,42 @@ export function FilterAndThresholdPanel({
   }
 
   const hasActiveFilters = Object.keys(query).length > 0
+  const activeCount = Object.keys(query).length
+
 
   return (
     <section className="filter-threshold-panel" aria-labelledby="filter-threshold-heading">
       <div className="filter-threshold-header">
         <div className="panel-title-cluster">
-          <span className="panel-icon-badge" aria-hidden="true">⚙️</span>
-          <div>
-            <h2 id="filter-threshold-heading">Ngưỡng kiểm định & Bộ lọc phân tích</h2>
-            <p className="panel-description">
-              Thiết lập các ngưỡng đánh giá và tiêu chí lọc. Tính toán lại nghiệp vụ trực tiếp trên máy chủ backend.
-            </p>
-          </div>
-        </div>
-        {hasActiveFilters && (
-          <button type="button" className="btn-reset-filters" onClick={onReset}>
-            ✕ Xóa bộ lọc và tham số
+          <button
+            type="button"
+            className="btn-toggle-panel"
+            onClick={() => setIsExpanded(!isExpanded)}
+            aria-expanded={isExpanded}
+            title={isExpanded ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'}
+          >
+            <span className="panel-icon-badge" aria-hidden="true">⚙️</span>
+            <h2 id="filter-threshold-heading">Ngưỡng kiểm định & Bộ lọc</h2>
+            <span className="panel-toggle-chevron" aria-hidden="true">{isExpanded ? '▲' : '▼'}</span>
           </button>
-        )}
+          {activeCount > 0 && (
+            <span className="active-filters-badge">
+              {activeCount} bộ lọc đang áp dụng
+            </span>
+          )}
+        </div>
+        <div className="panel-header-actions">
+          {hasActiveFilters && (
+            <button type="button" className="btn-reset-filters" onClick={onReset}>
+              ✕ Xóa bộ lọc và tham số
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="filter-threshold-body">
+      {isExpanded && (
+        <div className="filter-threshold-body">
+
         {/* Threshold parameters form */}
         {hasParameters && view.parameters && (
           <form className="threshold-form-block" onSubmit={handleParamSubmit}>
@@ -158,6 +174,8 @@ export function FilterAndThresholdPanel({
           </form>
         )}
       </div>
+      )}
     </section>
   )
 }
+

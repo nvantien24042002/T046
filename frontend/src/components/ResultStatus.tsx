@@ -23,22 +23,33 @@ export function ResultIdentity() {
   return (
     <div className="result-identity-container">
       <div className="result-identity-summary-bar">
-        <p className="result-identity-line">
-          Dataset: <code className="dataset-id-tag">{datasetId}</code> ·{' '}
-          {result.descriptor ? (
-            <>Result do backend cung cấp: <code>{result.descriptor.result_id}</code></>
-          ) : (
-            'Kết quả analyze trực tiếp; chưa có metadata xác thực nguồn dữ liệu.'
-          )}
-          <span className={`dataset-status-pill ${isVerified ? 'verified' : 'session'}`}>
-            {isVerified ? '✓ Backend Verified' : '● Phiên trực tiếp'}
+        <div className="result-identity-chips">
+          <span className="identity-chip dataset-chip">
+            <span className="chip-icon" aria-hidden="true">📁</span>
+            <span className="chip-label">Dataset:</span>
+            <code className="dataset-id-tag">{datasetId}</code>
           </span>
-        </p>
+
+          <span className={`identity-chip status-chip ${isVerified ? 'verified' : 'session'}`}>
+            <span className="chip-dot" aria-hidden="true" />
+            {isVerified ? 'Backend Verified' : 'Phiên trực tiếp'}
+          </span>
+
+          {result.descriptor && (
+            <span className="identity-chip result-chip">
+              <span className="chip-label">ID:</span>
+              <span className="chip-val">{result.descriptor.result_id}</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {(result.payload.request_fingerprint || result.descriptor?.payload_sha256) && (
         <details className="diagnostic-disclosure">
-          <summary>Thông tin chẩn đoán kỹ thuật & Chữ ký dữ liệu</summary>
+          <summary>
+            <span className="disclosure-icon" aria-hidden="true">🔒</span>
+            <span>Chữ ký & Chẩn đoán kỹ thuật</span>
+          </summary>
           <div className="diagnostic-body">
             {result.payload.request_fingerprint && (
               <p className="diagnostic-item">
@@ -47,7 +58,7 @@ export function ResultIdentity() {
             )}
             {result.descriptor?.payload_sha256 && (
               <p className="diagnostic-item">
-                <span>Payload SHA256:</span> <samp>{result.descriptor.payload_sha256}</samp>
+                <span>SHA256:</span> <samp>{result.descriptor.payload_sha256}</samp>
               </p>
             )}
           </div>
@@ -56,3 +67,4 @@ export function ResultIdentity() {
     </div>
   )
 }
+

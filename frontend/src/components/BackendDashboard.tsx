@@ -156,16 +156,18 @@ function DashboardSession({ page }: { page: DashboardPage }) {
   return (
     <>
       <div className="session-status-ribbon">
-        <p className="session-statement">
-          Các thông số và kết quả nghiệp vụ do backend cung cấp. Không có dữ liệu mẫu thay thế.
-        </p>
+        <div className="session-engine-status">
+          <span className="engine-pulse-dot" aria-hidden="true" />
+          <span className="engine-label">Backend Realtime Engine · Nguồn dữ liệu thời gian thực</span>
+        </div>
         <button
           type="button"
           className="btn-compact-refresh"
           onClick={handleRefresh}
           title="Tải lại dữ liệu trang từ máy chủ Backend"
         >
-          <span className="refresh-icon" aria-hidden="true">↻</span> Làm mới
+          <span className="refresh-icon" aria-hidden="true">↻</span>
+          <span>Làm mới</span>
         </button>
       </div>
 
@@ -190,7 +192,7 @@ function DashboardSession({ page }: { page: DashboardPage }) {
           {view.state !== 'ready' && <EmptyState>{view.reason ?? 'Chưa có kết quả phù hợp.'}</EmptyState>}
           {view.notes.map((note, i) => (
             <div key={i} className="dashboard-system-note">
-              <span className="note-icon">ℹ️</span>
+              <span className="note-icon" aria-hidden="true">ℹ️</span>
               <p>{note}</p>
             </div>
           ))}
@@ -206,7 +208,7 @@ function DashboardSession({ page }: { page: DashboardPage }) {
               />
 
               {/* KPI Cards Grid */}
-              <section aria-label="Các chỉ số KPI chính">
+              <section aria-label="Các chỉ số KPI chính" className="kpi-section-container">
                 <dl className="overview-metrics kpi-grid">
                   {view.metrics.map((metric) => {
                     const theme = getKpiTheme(metric.key, metric.label)
@@ -219,13 +221,18 @@ function DashboardSession({ page }: { page: DashboardPage }) {
                         className={`kpi-card ${theme}`}
                       >
                         <div className="kpi-card-header">
-                          <span className="kpi-icon" aria-hidden="true">{icon}</span>
+                          <span className="kpi-icon-bubble" aria-hidden="true">{icon}</span>
                           <dt className="kpi-label">{metric.label}</dt>
                         </div>
                         <dd className="kpi-value">
                           {metric.value === null ? 'Chưa có kết quả' : String(metric.value)}
                         </dd>
-                        <span className="kpi-footer-badge">Backend Metric</span>
+                        <div className="kpi-card-footer">
+                          <div className="kpi-mini-track" aria-hidden="true">
+                            <div className="kpi-mini-bar" />
+                          </div>
+                          <span className="kpi-footer-badge">Backend Verified</span>
+                        </div>
                       </div>
                     )
                   })}

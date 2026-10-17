@@ -159,49 +159,43 @@ export function QAWarningsPanel({ view, page }: { view: DashboardView; page: Das
     <section className="qa-alerts-panel" aria-labelledby="qa-alerts-heading">
       <div className="qa-alerts-header">
         <div className="qa-alerts-title-wrapper">
-          <span className="qa-badge-icon" aria-hidden="true">⚠️</span>
-          <div>
-            <h2 id="qa-alerts-heading">Tín hiệu & Cảnh báo QA/QC</h2>
-            <p className="qa-alerts-subtitle">
-              Đánh giá tự động từ các bộ kiểm tra kỹ thuật Backend (Chất lượng ảnh, Bounding box và Phân bố).
-            </p>
-          </div>
+          <span className="qa-badge-icon" aria-hidden="true">🛡️</span>
+          <h2 id="qa-alerts-heading">Cảnh báo & Tín hiệu QA/QC</h2>
         </div>
-        <span className="qa-count-badge">
-          {alerts.length ? `${alerts.length} cảnh báo` : 'Tất cả đạt chuẩn'}
+        <span className={`qa-count-pill ${alerts.length ? 'has-alerts' : 'all-good'}`}>
+          <span className="status-dot" aria-hidden="true" />
+          {alerts.length ? `${alerts.length} cảnh báo cần xử lý` : '100% Đạt tiêu chuẩn kiểm định'}
         </span>
       </div>
 
       {!alerts.length ? (
         <div className="qa-clean-state">
-          <span className="qa-clean-icon" aria-hidden="true">✓</span>
-          <div>
-            <strong>Không phát hiện cảnh báo QA/QC trong phạm vi bộ lọc hiện tại.</strong>
-            <p>Tất cả các chỉ số chất lượng và phân bố đều thỏa mãn ngưỡng quy định do Backend thiết lập.</p>
+          <div className="qa-clean-icon-circle" aria-hidden="true">✓</div>
+          <div className="qa-clean-text">
+            <strong>Tất cả chỉ số đạt tiêu chuẩn kỹ thuật Backend</strong>
+            <span className="qa-clean-sub">Không có vi phạm ngưỡng hình ảnh hoặc phân bố class nào được phát hiện.</span>
           </div>
         </div>
       ) : (
         <div className="qa-alerts-grid">
           {alerts.map((alert) => (
             <div key={alert.id} className={`qa-alert-card level-${alert.level.toLowerCase()}`}>
-              <div className="qa-alert-card-top">
+              <div className="qa-alert-top-row">
                 <span className={`qa-severity-pill pill-${alert.level.toLowerCase()}`}>
-                  {alert.level === 'CRITICAL' ? 'Nghiêm trọng'
-                    : alert.level === 'HIGH' ? 'Cảnh báo cao'
-                    : alert.level === 'MEDIUM' ? 'Cần chú ý'
-                    : 'Thông tin'}
+                  {alert.level === 'CRITICAL' ? '● Nghiêm trọng'
+                    : alert.level === 'HIGH' ? '▲ Cảnh báo cao'
+                    : alert.level === 'MEDIUM' ? '■ Cần chú ý'
+                    : 'ℹ Thông tin'}
                 </span>
-                <h3 className="qa-alert-title">{alert.title}</h3>
+                <span className="qa-metric-tag">{alert.basis}</span>
               </div>
+              <h3 className="qa-alert-title">{alert.title}</h3>
               <p className="qa-alert-description">{alert.description}</p>
-              <div className="qa-alert-basis">
-                <span className="basis-label">Căn cứ số liệu:</span>
-                <code>{alert.basis}</code>
-              </div>
             </div>
           ))}
         </div>
       )}
     </section>
   )
+
 }

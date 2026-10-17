@@ -26,55 +26,54 @@ export function BrowserDatasetPanel() {
   }, [attempt, state?.revision, state?.datasetId])
 
   return (
-    <section aria-label="Anonymous session datasets" className="browser-session-bar-card">
-      <div className="session-bar-top">
-        <div className="session-info-left">
-          <span className="session-shield-badge" aria-hidden="true">🔒</span>
-          <div>
-            <h2>Dataset của phiên trình duyệt</h2>
-            <p className="session-desc-text">
-              Không đăng nhập. Chỉ tài nguyên thuộc session hiện tại được phép truy cập.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="btn-refresh-session"
-          onClick={() => {
-            setError(null)
-            setAttempt(attempt + 1)
-          }}
-        >
-          Làm mới danh sách session
-        </button>
-      </div>
-
-      {error && <p role="alert" className="session-alert-msg">{error}</p>}
-
-      {datasets.length === 0 ? (
-        <p className="session-empty-msg">
-          Phiên này chưa có dataset. Không tự gán dữ liệu legacy.
-        </p>
-      ) : (
-        <div className="session-datasets-cluster">
+    <section aria-label="Anonymous session datasets" className="browser-session-ribbon">
+      <div className="session-ribbon-content">
+        <div className="session-ribbon-left">
+          <span className="session-icon-badge" aria-hidden="true">🗂️</span>
+          <span className="session-title-label">Phiên Dataset:</span>
+          {datasets.length === 0 && (
+            <span className="session-empty-badge">
+              Chưa có dataset trong phiên. Vui lòng tải lên file zip.
+            </span>
+          )}
           {datasets.map((d) => {
             const isSelected = state?.datasetId === d.dataset_id
             return (
               <button
                 key={d.dataset_id}
                 type="button"
-                className={`btn-session-dataset ${isSelected ? 'active-selection' : ''}`}
+                className={`btn-session-pill ${isSelected ? 'active' : ''}`}
                 disabled={d.state !== 'ready' || state?.loading}
                 onClick={() => {
                   void state?.loadResults(d.dataset_id, '')
                 }}
+                title={`Chọn dataset ${d.dataset_id} (${d.state})`}
               >
-                {d.dataset_id} · {d.state}
+                <span className="pill-dot" aria-hidden="true" />
+                <span className="pill-text">{d.dataset_id} · {d.state}</span>
               </button>
             )
           })}
         </div>
-      )}
+
+        <div className="session-ribbon-right">
+          <button
+            type="button"
+            className="btn-refresh-icon"
+            onClick={() => {
+              setError(null)
+              setAttempt(attempt + 1)
+            }}
+            title="Làm mới danh sách session"
+          >
+            <span className="icon" aria-hidden="true">↻</span>
+            <span className="btn-text">Làm mới danh sách session</span>
+          </button>
+        </div>
+      </div>
+
+      {error && <p role="alert" className="session-alert-msg">{error}</p>}
     </section>
   )
+
 }
