@@ -1,0 +1,46 @@
+[
+  {
+    "path": "datasets/__init__.py",
+    "sha256": "e1147aab0112de0907bee5a076717142ff1c4913e2128546c50bbd2c663f53f2"
+  },
+  {
+    "path": "datasets/archive.py",
+    "sha256": "fd31a96a1210b7863480f390474c17a84c8e105155795b661a85bfa87e983981"
+  },
+  {
+    "path": "datasets/limits.py",
+    "sha256": "4c1235203d417d7eb0f936b9bc46c115fd60e126eb01d6c2976e8a2b7f9ad54c"
+  },
+  {
+    "path": "datasets/manager.py",
+    "sha256": "3ccb1db5042a21ed3c6f37182a62f01b7dac18176aa65217bc8f3a61069adeea"
+  },
+  {
+    "path": "datasets/runner.py",
+    "sha256": "e95ad2ea408e27826bf228aa2d46240d9b60c2c52d4289976b516cf1e12ace94"
+  },
+  {
+    "path": "datasets/schema.sql",
+    "sha256": "7248afb8fa4e3e440146714e868de408d6d2da25d06b20bd4c90945ccba9e21d"
+  },
+  {
+    "path": "datasets/validate.py",
+    "sha256": "6aaacba261a4fa9a10d5b9cec8cfbf01a27c8200adae245b491cadc7135183b5"
+  },
+  {
+    "path": "datasets/worker.py",
+    "sha256": "29cae65ae449c279f72f4ee44dfc83077a5c9e097572507f97db94fd15ff7cca"
+  },
+  {
+    "path": "datasets/xmlsafe.py",
+    "sha256": "b87b3143158a39275b63eb3b3c67d44f91f6327e168aa3b1353e617786e4067c"
+  },
+  {
+    "path": "tests/test_archive_validation.py",
+    "sha256": "254f00411a230b0b4d568e377b86c641884c489ecf2df2308f6ce626207e33d5"
+  },
+  {
+    "path": "tests/test_dataset_manager.py",
+    "sha256": "a2d95c6b8a840e4c07d54cf48e71ca274145922c7b952f3a054aa7ebbb9f11a4"
+  }
+]

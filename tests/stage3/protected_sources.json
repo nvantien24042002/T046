@@ -1,0 +1,38 @@
+[
+  {
+    "path": "prototype_app.py",
+    "sha256": "577a59946c810c08ff9b50ba7ea70acc41a6f991ecf77a430e1b48af34514a51"
+  },
+  {
+    "path": "prototype/api.py",
+    "sha256": "4643ff4e1cb9b6458b9825231f919486ae050ef65c7a6e12317887867be8f6af"
+  },
+  {
+    "path": "ui/upload_component/__init__.py",
+    "sha256": "4a408abc493732a03e5e99a187e3010966ac5020289fd1716a6aacf4468dda64"
+  },
+  {
+    "path": "requirements-prototype.txt",
+    "sha256": "eb8995ec6fd78abd6d961a711d02b2e1fa1ca87fbea2bab282f2ef55aca6491e"
+  },
+  {
+    "path": "docs/PROTOTYPE_REQUIREMENTS_LOCK.txt",
+    "sha256": "650befa89cc06ece70e93f52dc78569252fcf6c2a86aa15e3304f57480b5a490"
+  },
+  {
+    "path": "tests/test_baseline.py",
+    "sha256": "2d662504ac23ad4f10a9ef15f379cf810a78da7ae3c166c43564509f06352bc0"
+  },
+  {
+    "path": "tests/test_prototype_api.py",
+    "sha256": "bcb20c471559bc9f92e025ccabc6ea5eb1587d36ba9065f2b2abb6914a8f130b"
+  },
+  {
+    "path": "tests/e2e/test_browser.py",
+    "sha256": "375e02bb8f48d1cd6d00ca56a1720a036b0173be64e0674d22187862f7023b95"
+  },
+  {
+    "path": "tests/baseline/expected.json",
+    "sha256": "e957585c8c1d67910486088d5f102ac40b47204f904f1a44cf13fa557078ec91"
+  }
+]

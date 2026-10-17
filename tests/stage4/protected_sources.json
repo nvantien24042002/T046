@@ -1,0 +1,54 @@
+[
+  {
+    "path": "storage/__init__.py",
+    "sha256": "02caaba0432c92e93891d600ed4ebb8851eaf5270d6af16225d642aab92a4555"
+  },
+  {
+    "path": "storage/config.py",
+    "sha256": "6b7a3d23e8098e91b7e371560908f47f7b06f4dfe51f602f432e73dabd43b3c3"
+  },
+  {
+    "path": "storage/files.py",
+    "sha256": "a092bdb4c63c1c289985a23675d828b278d9de0f25b71beffed09933b04959e1"
+  },
+  {
+    "path": "storage/uploads.py",
+    "sha256": "86ae083706f75bd37d60ec57d8fe7eb59ec2deeb3c6b81edc20587a1c587f018"
+  },
+  {
+    "path": "storage/schema.sql",
+    "sha256": "c0cfd3cb8690db351bcc441a1858668265a096a8604256b28a2c677592a55943"
+  },
+  {
+    "path": "backend/durable_api.py",
+    "sha256": "6da612cb70a3d09e0f493f7fa3705051400233e44c1ca28cd93f57bc93ec0bd7"
+  },
+  {
+    "path": "backend/upload_client/index.html",
+    "sha256": "ff581a4214c35753635faabff3a5d22172680bca96927f94e46af7afda10cb81"
+  },
+  {
+    "path": "backend/upload_client/uploader.js",
+    "sha256": "935db23a9a97593ae9d6855b1b8f2fdc24f75c404e0e98f049c910408af8e91e"
+  },
+  {
+    "path": "tests/durable_support.py",
+    "sha256": "ae60b6b9f870c508d10f857271e17907dd099cf57aaf7055b0e85edd1471e0ac"
+  },
+  {
+    "path": "tests/test_durable_api.py",
+    "sha256": "846236c9e59c6ef46f8f3b20626a0d816d393780ce1fe91ecd1c248a3b35cea9"
+  },
+  {
+    "path": "tests/test_durable_network.py",
+    "sha256": "8588219d1ff713f82eb5ceda2b528ae63f19342971caeca32c652b62c7c24f30"
+  },
+  {
+    "path": "tests/test_durable_store.py",
+    "sha256": "9d95c7b4bce29d2a7eef3a68b2cedaf14182f1c7162f42303ba3b53fb6c9676c"
+  },
+  {
+    "path": "tests/e2e/test_durable_browser.py",
+    "sha256": "a2c09cf4fd06b05af942d510bc39c182ac77e6ddc488a677a46d9cb9ca008fbb"
+  }
+]

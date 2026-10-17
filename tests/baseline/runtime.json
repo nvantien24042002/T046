@@ -1,0 +1,19 @@
+{
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "streamlit": "1.66.0",
+    "fastapi": "0.143.2",
+    "starlette": "1.8.0",
+    "uvicorn": "0.54.0",
+    "pydantic": "2.14.1",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6",
+    "opencv-python-headless": "5.0.0.93",
+    "Pillow": "12.3.0",
+    "plotly": "7.1.0",
+    "pytest": "9.1.1",
+    "httpx": "0.28.1",
+    "playwright": "1.64.0"
+  }
+}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Durable upload protocol test client — Stage 3</title>
+<main>
+  <h1>Durable upload protocol test client</h1>
+  <p>Stage 3 only. Files remain unvalidated upload data; no dataset is registered.</p>
+  <label for="owner-key">Owner key (kept only in this tab's session storage until Forget)</label>
+  <input id="owner-key" type="password" autocomplete="off">
+  <label for="source">Select or reselect the same ZIP</label>
+  <input id="source" type="file" accept=".zip">
+  <button id="upload">Upload / resume</button>
+  <button id="pause">Pause</button>
+  <button id="cancel">Cancel and remove this temporary upload</button>
+  <button id="forget">Forget credentials (does not delete upload)</button>
+  <progress id="progress" max="100" value="0" aria-label="Acknowledged upload progress"></progress>
+  <p id="status" role="status">Choose a small synthetic ZIP for protocol testing.</p>
+  <pre id="result"></pre>
+</main>
+<script type="module" src="/client/uploader.js"></script>
+</html>

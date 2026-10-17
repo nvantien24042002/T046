@@ -1,0 +1,9 @@
+# Isolated Stage 1/2 environment; production requirements.txt is unchanged.
+-r requirements.txt
+streamlit==1.66.0
+fastapi==0.143.2
+uvicorn==0.54.0
+httpx==0.28.1
+pytest==9.1.1
+playwright==1.64.0
+psutil==7.2.2

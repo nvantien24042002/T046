@@ -1,0 +1,19 @@
+
+.venv/
+__pycache__/
+.pytest_cache/
+test-results/
+playwright-report/
+.env
+*.part
+prototype-data/
+upload-data/
+.env.upload
+
+# Local diagnostics and runtime evidence
+.diagnostics/
+
+# Frontend dependencies and build outputs
+node_modules/
+dist/
+coverage/
