@@ -29,6 +29,7 @@ from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse, Response
 
 from core.pipeline import execute_pipeline, read_single_image, get_annotated_preview_image
+from backend.dashboard_projection import DashboardRequest, project_dashboard, canonical_image_path
 from core.image_quality import DEFAULT_IMAGE_CFG
 from core.label_audit import DEFAULT_LABEL_CFG
 from datasets.limits import Limits, ValidationError
@@ -91,7 +92,38 @@ DEFAULT_ORIGINS = (
     "http://localhost:8501",
     "http://127.0.0.1:8502",
     "http://localhost:8502",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:4173",
+    "http://localhost:4173",
 )
+
+
+def make_dataset_summary(dataset_id: str, upload_id: str, manifest: dict) -> dict:
+    capabilities = manifest.get("capabilities")
+    if capabilities is None:
+        has_images = bool(manifest.get("images", 0) > 0)
+        has_annotations = bool(manifest.get("annotations", False))
+        capabilities = {
+            "image_quality": has_images,
+            "label_audit": has_annotations,
+            "distribution": has_annotations,
+            "coverage": has_annotations,
+            "scene_finder": has_annotations,
+        }
+    return {
+        "dataset_id": dataset_id,
+        "upload_id": upload_id,
+        "state": "ready",
+        "ready": True,
+        "archive_bytes": manifest.get("archive_bytes"),
+        "archive_sha256": manifest.get("archive_sha256"),
+        "entries": manifest.get("entries"),
+        "images": manifest.get("images"),
+        "annotations": manifest.get("annotations"),
+        "xml_records": manifest.get("xml_records", {}),
+        "capabilities": capabilities,
+    }
 
 
 def create_integrated_app(
@@ -102,6 +134,8 @@ def create_integrated_app(
     limits: Limits | None = None,
     manager_factory=DatasetManager,
     origins: tuple[str, ...] | None = None,
+    browser_sessions=None,
+    react_dist: str | Path | None = None,
 ) -> FastAPI:
     validate_owners(owners)
     keys = {owner: hashlib.sha256(key.encode()).digest() for owner, key in owners.items()}
@@ -255,6 +289,8 @@ def create_integrated_app(
 
     @app.get("/client", include_in_schema=False)
     async def client() -> Response:
+        if react_dist is not None:
+            return Response(status_code=404)
         return Response(
             (CLIENT_DIR / "index.html").read_text(encoding="utf-8"),
             media_type="text/html",
@@ -267,6 +303,8 @@ def create_integrated_app(
 
     @app.get("/client/uploader.js", include_in_schema=False)
     async def script() -> Response:
+        if react_dist is not None:
+            return Response(status_code=404)
         return Response(
             (CLIENT_DIR / "uploader.js").read_text(encoding="utf-8"),
             media_type="text/javascript",
@@ -425,26 +463,7 @@ def create_integrated_app(
 
         def get_summary():
             with app.state.manager.reader(identity, upload_id, capability) as reader:
-                manifest = reader["summary"]
-                return {
-                    "dataset_id": dataset_id,
-                    "upload_id": upload_id,
-                    "state": "ready",
-                    "ready": True,
-                    "archive_bytes": manifest["archive_bytes"],
-                    "archive_sha256": manifest["archive_sha256"],
-                    "entries": manifest["entries"],
-                    "images": manifest["images"],
-                    "annotations": manifest["annotations"],
-                    "xml_records": manifest.get("xml_records", {}),
-                    "capabilities": {
-                        "image_quality": True,
-                        "label_audit": manifest["annotations"],
-                        "distribution": manifest["annotations"],
-                        "coverage": manifest["annotations"],
-                        "scene_finder": manifest["annotations"],
-                    },
-                }
+                return make_dataset_summary(dataset_id, upload_id, reader["summary"])
 
         return await run_in_threadpool(get_summary)
 
@@ -508,6 +527,7 @@ def create_integrated_app(
                 bundle = {
                     "dataset_id": dataset_id,
                     "request_fingerprint": request_fingerprint,
+                    "effective_config": {"image_cfg": {**DEFAULT_IMAGE_CFG, **(req_config.image_cfg or {})}, "label_cfg": {**DEFAULT_LABEL_CFG, **(req_config.label_cfg or {})}},
                     "quality_rows": to_records(results["quality"]),
                     "audit_rows": to_records(results["audit"]),
                     "classes": to_records(results["classes"]),
@@ -548,6 +568,42 @@ def create_integrated_app(
 
         return await run_in_threadpool(load_cached)
 
+    @app.post(DATASET_PREFIX + "/{dataset_id}/dashboard")
+    async def dashboard(dataset_id: str, request: Request):
+        upload_id, _ = resolve_dataset(dataset_id)
+        identity = session_owner(upload_id, request)
+        capability = cap(request)
+        body = bytearray()
+        async for block in request.stream():
+            if len(body) + len(block) > 65536:
+                raise UploadError(413, "REQUEST_TOO_LARGE")
+            body.extend(block)
+        try:
+            selection = DashboardRequest.model_validate_json(body)
+        except PydanticValidationError:
+            raise UploadError(422, "INVALID_DASHBOARD_REQUEST") from None
+        if not selection.expected_fingerprint:
+            raise UploadError(422, "ANALYSIS_IDENTITY_REQUIRED")
+
+        def project():
+            with app.state.manager.reader(identity, upload_id, capability) as reader:
+                cache = app.state.cache_dir / f"{dataset_id}.json"
+                if not cache.is_file():
+                    raise UploadError(409, "ANALYSIS_NOT_RUN")
+                payload = json.loads(cache.read_text(encoding="utf-8"))
+                if payload.get("request_fingerprint") != selection.expected_fingerprint:
+                    raise UploadError(409, "RESULT_CHANGED")
+                summary = make_dataset_summary(dataset_id, upload_id, reader["summary"])
+                try:
+                    response = project_dashboard(selection, payload, summary)
+                except ValueError:
+                    raise UploadError(502, "INVALID_ANALYSIS_RESULT") from None
+                response["source"] = {"request_fingerprint": selection.expected_fingerprint,
+                    "result_id": None, "payload_sha256": None}
+                return JSONResponse(response, headers={"Cache-Control": "no-store"})
+        async with mutations:
+            return await run_in_threadpool(project)
+
     @app.get(DATASET_PREFIX + "/{dataset_id}/preview")
     async def preview_image(
         dataset_id: str,
@@ -566,15 +622,19 @@ def create_integrated_app(
 
         def fetch_preview():
             with app.state.manager.reader(identity, upload_id, capability) as reader:
+                paths = [r[0] for r in reader["index"].execute("SELECT name FROM entries WHERE kind='image'").fetchall()]
+                canonical_path = canonical_image_path(image_path, paths)
+                if canonical_path is None:
+                    raise UploadError(404, "IMAGE_NOT_FOUND")
                 try:
-                    raw = read_single_image(reader["archive"], image_path)
+                    raw = read_single_image(reader["archive"], canonical_path)
                 except KeyError:
                     raise UploadError(404, "IMAGE_NOT_FOUND") from None
                 except ValueError:
                     raise UploadError(413, "IMAGE_SIZE_LIMIT") from None
 
                 if not annotated:
-                    return raw, "image/png"
+                    return raw, ("image/jpeg" if raw.startswith(b"\xff\xd8") else "image/png" if raw.startswith(b"\x89PNG") else "image/webp" if raw[:4] == b"RIFF" else "image/bmp")
 
                 # Draw annotations using indexed boxes for this image
                 arr = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -589,7 +649,7 @@ def create_integrated_app(
                 for node_id, attrs_json in image_rows:
                     attrs = json.loads(attrs_json)
                     name = attrs.get("name", "")
-                    if name == image_path or image_path.endswith("/" + name):
+                    if canonical_image_path(name, paths) == canonical_path:
                         target_node_id = node_id
                         break
 
@@ -599,7 +659,7 @@ def create_integrated_app(
                         (target_node_id,)
                     ).fetchall()
                     boxes = [json.loads(r[0]) for r in box_rows]
-                    arr = get_annotated_preview_image(reader, image_path, boxes)
+                    arr = get_annotated_preview_image(reader, canonical_path, boxes)
 
                 ok, encoded = cv2.imencode(".png", arr)
                 if not ok:
@@ -609,9 +669,18 @@ def create_integrated_app(
         image_bytes, media_type = await run_in_threadpool(fetch_preview)
         return Response(content=image_bytes, media_type=media_type)
 
+    from backend.browser_api import add_browser_routes
+    add_browser_routes(app, origins, {
+        'status': upload_status, 'receipts': receipts, 'chunk': chunk,
+        'complete': complete_upload, 'cancel': cancel_upload,
+        'validate': start_validation, 'lifecycle': get_dataset_lifecycle,
+        'cancel_validation': cancel_dataset_validation, 'summary': dataset_summary,
+        'analyze': analyze_dataset, 'results': get_analysis_results,
+        'dashboard': dashboard, 'preview': preview_image,
+    }, CreateUpload, sessions=browser_sessions, react_dist=react_dist)
     return app
 
 
 def create_integrated_from_env() -> FastAPI:
     config, owners = from_env()
-    return create_integrated_app(config, owners)
+    return create_integrated_app(config, owners, react_dist=os.environ.get('CVAT_REACT_DIST'))
