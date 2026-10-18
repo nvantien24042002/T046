@@ -60,6 +60,7 @@ export function BrowserDatasetUploader() {
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
+    if (busy) return
     setIsDragging(false)
     setError(null)
     setResult(null)
@@ -240,7 +241,7 @@ export function BrowserDatasetUploader() {
             </label>
           </p>
           <span id="file-requirements" className="drop-hint">
-            Hỗ trợ file .ZIP tối đa 50 GB. Quy trình upload theo chunk bền vững, không tràn RAM.
+            Chọn tệp ZIP CVAT. Giới hạn dung lượng thực tế do dịch vụ xác nhận khi tạo phiên.
           </span>
         </div>
       </div>
@@ -249,7 +250,7 @@ export function BrowserDatasetUploader() {
       {fileMetadata && (
         <div className={`file-info-card ${fileMetadata.valid ? 'valid' : 'invalid'}`}>
           <div className="file-info-header">
-            <strong>{fileMetadata.name}</strong>
+            <strong>Tệp dữ liệu đã chọn</strong>
             <span className={`file-tag ${fileMetadata.valid ? 'tag-valid' : 'tag-invalid'}`}>
               {fileMetadata.valid ? '✓ Hợp lệ' : '✗ Không hợp lệ'}
             </span>
@@ -347,6 +348,7 @@ export function BrowserDatasetUploader() {
         <div className="upload-result-card" role="region" aria-label="Kết quả tải lên">
           <div className="result-header">
             <h3>✓ Tải lên và nạp dữ liệu thành công!</h3>
+            <span className="dataset-tag">Kết quả đã sẵn sàng</span>
           </div>
 
           <div className="result-metrics">

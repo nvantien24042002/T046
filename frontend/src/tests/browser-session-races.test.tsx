@@ -48,7 +48,7 @@ it('refreshes the owned dataset catalog after publication within the same reques
   fireEvent.click(screen.getByText('Begin upload'))
   await waitFor(() => expect(mock.json).toHaveBeenCalledTimes(2))
   fireEvent.click(screen.getByText('Publish result'))
-  expect(await screen.findByRole('button', { name: 'Bộ dữ liệu 1' })).toBeVisible()
+  expect(await screen.findByRole('button', { name: /Bộ dữ liệu 1/ })).toBeVisible()
   expect(mock.json).toHaveBeenCalledTimes(3)
 })
 it('hides internal identities while selecting datasets with their original IDs', async () => {

@@ -72,3 +72,15 @@ it('dashboard timeout aborts cookie transport without manufacturing fallback met
     expect(fetcher.mock.calls[1]?.[1]?.signal.aborted).toBe(true)
   } finally { vi.useRealTimers() }
 })
+it('bootstraps a fresh session after an expired session response before retrying', async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response('{}'))
+    .mockResolvedValueOnce(new Response('{"error":{"code":"SESSION_EXPIRED"}}', { status: 401 }))
+    .mockResolvedValueOnce(new Response('{}')).mockResolvedValueOnce(new Response('{"datasets":[]}'))
+  vi.stubGlobal('fetch', fetcher)
+  const { browserJson } = await import('../api/browserSession')
+  await expect(browserJson('/datasets')).rejects.toMatchObject({ status: 401 })
+  expect(await browserJson('/datasets')).toEqual({ datasets: [] })
+  expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+    '/api/browser/v1/session', '/api/browser/v1/datasets', '/api/browser/v1/session', '/api/browser/v1/datasets',
+  ])
+})

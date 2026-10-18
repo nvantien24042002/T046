@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useVerifiedResults } from '../context/VerifiedResultsContext'
+import { publicText } from './presentation'
 import { config } from '../config'
 import { VerifiedResultError } from '../api/verifiedResults'
 
@@ -31,8 +32,10 @@ function PreviewContent({
   const isMock = config.mode === 'mock'
   const isAuthorized = Boolean(config.mode === 'backend' && verified?.datasetId && verified?.activeResult)
 
+  const fetchPreview = verified?.fetchPreview
+
   useEffect(() => {
-    if (isMock || !isAuthorized || !imagePath || !verified) {
+    if (isMock || !isAuthorized || !imagePath || !fetchPreview) {
       return
     }
 
@@ -45,13 +48,13 @@ function PreviewContent({
       setLoading(true)
       setErrorMessage(null)
       try {
-        const blob = await verified.fetchPreview(imagePath, annotated, controller.signal)
-        if (!active) return
+        const blob = await fetchPreview(imagePath, annotated, controller.signal)
+        if (!active || controller.signal.aborted) return
         createdUrl = URL.createObjectURL(blob)
         setObjectUrl(createdUrl)
         setLoading(false)
       } catch (err: unknown) {
-        if (!active) return
+        if (!active || controller.signal.aborted) return
         setLoading(false)
         if (err instanceof VerifiedResultError) {
           if (err.code === 'IMAGE_NOT_FOUND' || err.status === 404) {
@@ -65,7 +68,7 @@ function PreviewContent({
           } else if (err.status === 401 || err.code === 'ACCESS_GRANT_INVALID') {
             setErrorMessage('Phiên ủy quyền hết hạn hoặc không hợp lệ')
           } else {
-            setErrorMessage(`Lỗi tải ảnh: ${err.code ?? err.status ?? 'Network error'}`)
+            setErrorMessage('Không thể tải ảnh. Vui lòng thử lại.')
           }
         } else {
           setErrorMessage('Không thể tải ảnh xem trước')
@@ -82,7 +85,7 @@ function PreviewContent({
         URL.revokeObjectURL(createdUrl)
       }
     }
-  }, [imagePath, annotated, isMock, isAuthorized, verified])
+  }, [imagePath, annotated, isMock, isAuthorized, fetchPreview])
 
   if (isMock) {
     return (
@@ -122,8 +125,8 @@ function PreviewContent({
       )}
       {!loading && !errorMessage && objectUrl && (
         <figure className="preview-figure">
-          <img src={objectUrl} alt={alt} className="preview-img" />
-          {caption && <figcaption className="preview-caption">{caption}</figcaption>}
+          <img src={objectUrl} alt={publicText(alt, 'Ảnh dữ liệu CVAT')} className="preview-img" onError={() => setErrorMessage('Không đọc được ảnh xem trước. Vui lòng thử lại.')} />
+          {caption && <figcaption className="preview-caption">{publicText(caption)}</figcaption>}
         </figure>
       )}
     </div>

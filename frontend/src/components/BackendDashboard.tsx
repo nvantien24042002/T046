@@ -17,6 +17,8 @@ import { FilterAndThresholdPanel } from './FilterAndThresholdPanel'
 import { BrowserExportButton } from './BrowserExportButton'
 import { Pagination, paginate } from './Pagination'
 import { ImagePreview } from './ImagePreview'
+import { ImageGallery } from './ImageGallery'
+import { publicText, publicColumn, publicCell } from './presentation'
 import type { DatasetSummary } from '../api/datasets'
 import { QualityAnalysisCharts, CoverageComparisonChart } from './AnalysisCharts'
 import { ImageQualityConfigurationPanel } from './ImageQualityConfiguration'
@@ -160,7 +162,7 @@ function DashboardSession({ page }: { page: DashboardPage }) {
   }
 
   return (
-    <>
+    <div className="dashboard-page-container" data-page={page} data-state={view ? view.state : 'loading'}>
       <div className="dashboard-toolbar">
         <button
           type="button"
@@ -196,7 +198,7 @@ function DashboardSession({ page }: { page: DashboardPage }) {
           <ErrorState message={error} />
           <div className="error-actions-cluster">
             <button className="btn-primary" onClick={handleRefresh}>
-              Thử lại
+              Thử lại API
             </button>
             <button className="btn-secondary" onClick={() => update({})}>
               Xóa bộ lọc và tham số
@@ -207,11 +209,11 @@ function DashboardSession({ page }: { page: DashboardPage }) {
         <LoadingState />
       ) : (
         <>
-          {view.state !== 'ready' && <EmptyState>{view.reason ?? 'Chưa có kết quả phù hợp.'}</EmptyState>}
+          {view.state !== 'ready' && <EmptyState>{publicText(view.reason ?? 'Chưa có kết quả phù hợp.')}</EmptyState>}
           {view.notes.map((note, i) => (
             <div key={i} className="dashboard-system-note">
               <span className="note-icon" aria-hidden="true">ℹ️</span>
-              <p>{note}</p>
+              <p>{publicText(note)}</p>
             </div>
           ))}
 
@@ -235,15 +237,15 @@ function DashboardSession({ page }: { page: DashboardPage }) {
                       <div
                         key={metric.key}
                         role="group"
-                        aria-label={metric.label}
+                        aria-label={publicText(metric.label)}
                         className={`kpi-card ${theme}`}
                       >
                         <div className="kpi-card-header">
                           <span className="kpi-icon-bubble" aria-hidden="true">{icon}</span>
-                          <dt className="kpi-label">{metric.label}</dt>
+                          <dt className="kpi-label">{publicText(metric.label)}</dt>
                         </div>
                         <dd className="kpi-value">
-                          {metric.value === null ? 'Chưa có kết quả' : String(metric.value)}
+                          {metric.value === null ? 'Chưa có kết quả' : publicCell(metric.value)}
                         </dd>
                         <div className="kpi-card-footer">
                           <div className="kpi-mini-track" aria-hidden="true">
@@ -275,7 +277,7 @@ function DashboardSession({ page }: { page: DashboardPage }) {
           )}
         </>
       )}
-    </>
+    </div>
   )
 }
 
@@ -293,6 +295,7 @@ function VisualizationsSection({ view, page }: { view: DashboardView; page?: Das
   const statusesChart = view.charts.find((c) => c.key === 'statuses')
   const prioritiesChart = view.charts.find((c) => c.key === 'priorities')
   const issuesChart = view.charts.find((c) => c.key === 'issues')
+
 
   // Prepare enriched class distribution data
   let classDistData: ClassDistributionItem[] = []
@@ -545,7 +548,7 @@ function ServerTable({
   const isAuditTable = pageName === 'labels' && table.key === 'audit'
   const [selectedAuditIndex, setSelectedAuditIndex] = useState<number | null>(null)
 
-  const columns = Object.keys(table.rows[0] ?? {})
+  const columns = [...new Set(table.rows.flatMap((row) => Object.keys(row)))].filter(publicColumn)
 
   const handleSort = (column: string) => {
     if (sort === column) {
@@ -559,8 +562,8 @@ function ServerTable({
 
   const sortedRows = sort
     ? [...table.rows].sort((a, b) => {
-        const valA = cell(a[sort])
-        const valB = cell(b[sort])
+        const valA = publicCell(a[sort])
+        const valB = publicCell(b[sort])
         const cmp = valA.localeCompare(valB, undefined, { numeric: true })
         return sortDir === 'asc' ? cmp : -cmp
       })
@@ -572,7 +575,7 @@ function ServerTable({
     <section className="server-table-card" aria-labelledby={`table-${table.key}-title`}>
       <div className="server-table-header">
         <div className="table-title-group">
-          <h2 id={`table-${table.key}-title`}>{table.title}</h2>
+          <h2 id={`table-${table.key}-title`}>{publicText(table.title)}</h2>
           <span className="table-count-tag">{table.rows.length.toLocaleString()} dòng</span>
         </div>
         <div className="table-header-controls">
@@ -599,7 +602,7 @@ function ServerTable({
               tableKey={table.key}
               page={pageName}
               query={query}
-              label={`Tải ${table.title} CSV`}
+              label={`Tải ${publicText(table.title)} CSV`}
             />
           )}
         </div>
@@ -791,12 +794,23 @@ function ServerTable({
                 onPageSizeChange={setGalleryPageSize}
               />
             </div>
+          ) : table.key === 'preview_images' && !isSceneFinder ? (
+            <div className="review-gallery-section">
+              <ImageGallery rows={paginate(sortedRows, page, pageSize)} />
+              <Pagination
+                total={sortedRows.length}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
+            </div>
           ) : (
             <>
               {/* Table View */}
-              <div className="table-scroll-wrapper">
+              <div className="table-scroll-wrapper" role="region" aria-label={publicText(table.title)}>
                 <table className="modern-data-table">
-                  <caption>{table.title}</caption>
+                  <caption>{publicText(table.title)}</caption>
                   <thead>
                     <tr>
                       {isAuditTable && <th scope="col">Xem box</th>}
@@ -806,9 +820,9 @@ function ServerTable({
                             type="button"
                             className="th-sort-btn"
                             onClick={() => handleSort(column)}
-                            title={`Sắp xếp theo ${column}`}
+                            title={`Sắp xếp theo ${publicText(column)}`}
                           >
-                            <span>{column}</span>
+                            <span>{publicText(column)}</span>
                             {sort === column && (
                               <span className="sort-arrow">{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>
                             )}
@@ -833,7 +847,7 @@ function ServerTable({
                           </td>
                         )}
                         {columns.map((column) => {
-                          const val = cell(row[column])
+                          const val = publicCell(row[column])
                           const isStatus = ['status', 'priority', 'quality_status'].includes(column.toLowerCase())
                           return (
                             <td key={column}>
@@ -859,7 +873,7 @@ function ServerTable({
                 onPageSizeChange={setPageSize}
               />
 
-              {table.key === 'preview_images' && (
+              {isSceneFinder && (
                 <div className="table-preview-controls">
                   <div className="preview-select-row">
                     <label className="field-label" htmlFor="select-preview-img">

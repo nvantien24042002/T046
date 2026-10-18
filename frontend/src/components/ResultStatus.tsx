@@ -23,6 +23,7 @@ export function ResultIdentity() {
         <span className="chip-dot" aria-hidden="true" />
         Đã tải kết quả phân tích
       </span>
+      <p role="status">Đang hiển thị kết quả của bộ dữ liệu đã chọn.</p>
     </div>
   )
 }

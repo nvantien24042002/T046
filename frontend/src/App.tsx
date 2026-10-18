@@ -2,7 +2,7 @@ import { Coverage } from './pages/Coverage'
 import { SceneFinder } from './pages/SceneFinder'
 import { BrowserDatasetPanel } from './components/BrowserDatasetPanel'
 import { NavLink, Outlet, Route, Routes, Link, useLocation } from 'react-router-dom'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { config } from './config'
 import { Dashboard } from './pages/Dashboard'
 import { Overview } from './pages/Overview'
@@ -37,6 +37,7 @@ const destinationIcons: Record<string, string> = {
 
 function Layout() {
   const location = useLocation()
+  const [menuOpen, setMenuOpen] = useState(false)
   const main = useRef<HTMLElement>(null)
   const firstRender = useRef(true)
 
@@ -49,34 +50,23 @@ function Layout() {
     <div className="workspace">
       <a className="skip-link" href="#main">Đến nội dung chính</a>
       <aside className="sidebar">
-        <Link className="brand" to="/">
-          <div className="brand-logo-mark" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-              <polyline points="2 17 12 22 22 17"></polyline>
-              <polyline points="2 12 12 17 22 12"></polyline>
-            </svg>
-          </div>
-          <div className="brand-text">
-            <span className="brand-name">CVAT</span>
-            <span className="brand-subtitle">QA/QC Studio</span>
-          </div>
-        </Link>
-        <nav aria-label="Điều hướng chính">
-          <NavLink end to="/">
+        <Link className="brand" to="/">CVAT<span>Dataset workspace</span></Link>
+        <button className="nav-toggle" aria-expanded={menuOpen} aria-controls="main-navigation" onClick={() => setMenuOpen(!menuOpen)}>Menu điều hướng</button>
+        <nav id="main-navigation" className={menuOpen ? 'is-open' : ''} aria-label="Điều hướng chính">
+          <NavLink onClick={() => setMenuOpen(false)} end to="/">
             <span className="nav-icon" aria-hidden="true">📊</span>
             <span className="nav-label">Tổng quan</span>
           </NavLink>
-          <NavLink to="/upload">
+          <NavLink onClick={() => setMenuOpen(false)} to="/upload">
             <span className="nav-icon" aria-hidden="true">☁️</span>
             <span className="nav-label">Tải lên dữ liệu (Upload)</span>
           </NavLink>
-          <NavLink to="/overview">
+          <NavLink onClick={() => setMenuOpen(false)} to="/overview">
             <span className="nav-icon" aria-hidden="true">📋</span>
             <span className="nav-label">Tổng quan dữ liệu</span>
           </NavLink>
           {destinations.map(([path, title]) => (
-            <NavLink key={path} to={path}>
+            <NavLink onClick={() => setMenuOpen(false)} key={path} to={path}>
               <span className="nav-icon" aria-hidden="true">{destinationIcons[path] ?? '📌'}</span>
               <span className="nav-label">{title}</span>
             </NavLink>
@@ -90,18 +80,9 @@ function Layout() {
         </div>
       </aside>
       <div className="content">
-        <header className="app-shell-header">
-          <div className="header-breadcrumbs">
-            <span className="crumb-root">CVAT QA/QC Platform</span>
-            <span className="crumb-sep" aria-hidden="true">/</span>
-            <span className="crumb-current">Scene Finder</span>
-          </div>
-          <div className="header-status-area">
-            <strong className="mode">
-              <span className="mode-dot" aria-hidden="true" />
-              Dữ liệu từ Backend · Không dùng dữ liệu mẫu
-            </strong>
-          </div>
+        <header>
+          <span>Scene Finder</span>
+          <strong className="mode">Dữ liệu từ Backend · Không dùng dữ liệu mẫu</strong>
         </header>
         <main id="main" tabIndex={-1} ref={main}>
           {config.mode === 'backend' && <BrowserDatasetPanel />}
