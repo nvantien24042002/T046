@@ -83,7 +83,9 @@ def test_create_chunk_complete_replay_and_global_concurrency(browser_api):
     assert first['upload_id']==same['upload_id']
     assert first['chunk_size_bytes']==65536
     assert 'upload_capability' not in first
-    assert create(b,data).status_code==429
+    res_b = create(b,data)
+    assert res_b.status_code == 201
+    assert res_b.json()['upload_id'] != first['upload_id']
     path=f"{PREFIX}/uploads/{first['upload_id']}"
     headers={'Upload-Offset':'0','X-Chunk-SHA256':hashlib.sha256(data).hexdigest()}
     assert a.put(path+'/chunks/0',content=data,headers=headers).status_code==200

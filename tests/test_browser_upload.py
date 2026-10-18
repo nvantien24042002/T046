@@ -315,14 +315,14 @@ def test_duplicate_upload_prevention(integrated_server, tmp_path):
     )
     assert res1.status_code == 201
 
-    # Attempting to start a second simultaneous upload without completing or cancelling the first
+    # Starting a second simultaneous upload succeeds concurrently with distinct ID
     res2 = client.post(
         "/api/v1/uploads",
         json={"filename": "dup2.zip", "size_bytes": len(data)},
         headers={"X-Owner-Key": owner_key, "Idempotency-Key": secrets.token_urlsafe(24)},
     )
-    assert res2.status_code == 429
-    assert res2.json()["error"]["code"] == "ONE_ACTIVE_UPLOAD"
+    assert res2.status_code == 201
+    assert res2.json()["upload_id"] != res1.json()["upload_id"]
 
 
 def test_unready_dataset_cannot_be_queried(integrated_server, tmp_path):

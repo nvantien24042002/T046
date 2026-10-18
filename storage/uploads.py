@@ -40,7 +40,7 @@ class UploadStore:
         self.config, self.clock, self.fault = config, clock, fault
         self.root = config.root
         self.guard = threading.RLock()
-        self.active: ChunkWriter | None = None
+        self.active_writers: dict[str, ChunkWriter] = {}
         self.free_bytes = free_bytes or (lambda: shutil.disk_usage(self.root).free)
         self.db = None
         self.process_lock = None
@@ -57,6 +57,28 @@ class UploadStore:
         except BaseException:
             self.close()
             raise
+
+    @property
+    def active(self) -> ChunkWriter | None:
+        with self.guard:
+            return next(iter(self.active_writers.values()), None) if self.active_writers else None
+
+    @active.setter
+    def active(self, value: ChunkWriter | None) -> None:
+        with self.guard:
+            if value is None:
+                self.active_writers.clear()
+            else:
+                self.active_writers[value.row["id"]] = value
+
+    def is_active_writer(self, upload_id: str, writer: ChunkWriter) -> bool:
+        with self.guard:
+            return self.active_writers.get(upload_id) is writer
+
+    def _unregister_writer(self, upload_id: str, writer: ChunkWriter) -> None:
+        with self.guard:
+            if self.active_writers.get(upload_id) is writer:
+                del self.active_writers[upload_id]
 
     def close(self) -> None:
         if self.db is not None:
@@ -183,8 +205,11 @@ class UploadStore:
             return {"receipts": [dict(r) for r in rows],
                     "next_index": rows[-1]["chunk_index"] + 1 if rows else start}
 
-    def _idle(self) -> None:
-        if self.active is not None:
+    def _idle(self, upload_id: str | None = None) -> None:
+        if upload_id is not None:
+            if upload_id in self.active_writers:
+                raise UploadError(409, "WRITER_BUSY")
+        elif self.active_writers:
             raise UploadError(409, "WRITER_BUSY")
 
     def _capacity(self, additional: int = 0) -> None:
@@ -194,7 +219,6 @@ class UploadStore:
 
     def create(self, owner: str, filename: str, size: int, request_key: str) -> dict:
         with self.guard:
-            self._idle()
             self.maintain()
             if (type(size) is not int or not 0 < size <= self.config.max_bytes
                     or (size + self.config.chunk_bytes - 1) // self.config.chunk_bytes > self.config.max_chunks):
@@ -210,8 +234,6 @@ class UploadStore:
                 if previous["size_bytes"] != size or previous["filename"] != filename:
                     raise UploadError(409, "IDEMPOTENCY_CONFLICT")
                 return {**self._view(previous), "upload_capability": self.capability(owner, previous["id"])}
-            if self.db.execute("SELECT COUNT(*) FROM uploads WHERE state IN ('created','uploading')").fetchone()[0]:
-                raise UploadError(429, "ONE_ACTIVE_UPLOAD")
             stored = self.db.execute("SELECT COALESCE(SUM(size_bytes),0) FROM uploads WHERE cleaned_at IS NULL").fetchone()[0]
             if stored + size > self.config.quota_bytes:
                 raise UploadError(507, "STORAGE_QUOTA")
@@ -238,7 +260,8 @@ class UploadStore:
 
     def begin(self, owner: str, upload_id: str, capability: str, index: int, offset: int, digest: str):
         with self.guard:
-            self._idle()
+            if upload_id in self.active_writers:
+                raise UploadError(409, "WRITER_BUSY")
             row = self._owned(owner, upload_id, capability)
             if row["state"] in ACTIVE and self.clock() >= row["expires_at"]:
                 self._expire(upload_id)
@@ -266,12 +289,13 @@ class UploadStore:
                 except OSError:
                     self._fail(upload_id, "STORAGE_UNAVAILABLE")
                     raise UploadError(507, "STORAGE_UNAVAILABLE") from None
-            self.active = writer
+            self.active_writers[upload_id] = writer
             return writer
 
     def complete(self, owner: str, upload_id: str, capability: str) -> dict:
         with self.guard:
-            self._idle()
+            if upload_id in self.active_writers:
+                raise UploadError(409, "WRITER_BUSY")
             row = self._owned(owner, upload_id, capability)
             if row["state"] in ACTIVE and self.clock() >= row["expires_at"]:
                 self._expire(upload_id)
@@ -288,7 +312,8 @@ class UploadStore:
 
     def cancel(self, owner: str, upload_id: str, capability: str) -> dict:
         with self.guard:
-            self._idle()
+            if upload_id in self.active_writers:
+                raise UploadError(409, "WRITER_BUSY")
             row = self._owned(owner, upload_id, capability)
             if row["state"] != "expired":
                 with self.transaction():
@@ -307,30 +332,31 @@ class UploadStore:
             self.db.execute("UPDATE uploads SET state='expired',cleanup_pending=1 WHERE id=?", (upload_id,))
 
     def _repair(self, upload_id: str) -> None:
-        row = self._row(upload_id)
-        folder = self._folder(upload_id)
-        payload = self._file(upload_id, "payload.part")
-        if not payload.exists():
-            if row["committed_bytes"]:
+        with self.guard:
+            row = self._row(upload_id)
+            folder = self._folder(upload_id)
+            payload = self._file(upload_id, "payload.part")
+            if not payload.exists():
+                if row["committed_bytes"]:
+                    self._fail(upload_id, "MISSING_ACKNOWLEDGED_BYTES")
+                    raise UploadError(409, "MISSING_ACKNOWLEDGED_BYTES")
+                folder.mkdir(exist_ok=True)
+                with payload.open("xb") as file:
+                    sync_file(file)
+                sync_dir(folder)
+                sync_dir(self.uploads_dir)
+            size = payload.stat().st_size
+            if size < row["committed_bytes"]:
                 self._fail(upload_id, "MISSING_ACKNOWLEDGED_BYTES")
                 raise UploadError(409, "MISSING_ACKNOWLEDGED_BYTES")
-            folder.mkdir(exist_ok=True)
-            with payload.open("xb") as file:
-                sync_file(file)
-            sync_dir(folder)
-            sync_dir(self.uploads_dir)
-        size = payload.stat().st_size
-        if size < row["committed_bytes"]:
-            self._fail(upload_id, "MISSING_ACKNOWLEDGED_BYTES")
-            raise UploadError(409, "MISSING_ACKNOWLEDGED_BYTES")
-        if size > row["committed_bytes"]:
-            with payload.open("r+b") as file:
-                file.truncate(row["committed_bytes"])
-                sync_file(file)
-        scratch = self._file(upload_id, "incoming.chunk")
-        if scratch.exists():
-            scratch.unlink()
-            sync_dir(folder)
+            if size > row["committed_bytes"]:
+                with payload.open("r+b") as file:
+                    file.truncate(row["committed_bytes"])
+                    sync_file(file)
+            scratch = self._file(upload_id, "incoming.chunk")
+            if scratch.exists():
+                scratch.unlink()
+                sync_dir(folder)
 
     def _verify_receipts(self, row) -> None:
         receipts = self.db.execute("SELECT * FROM receipts WHERE upload_id=? ORDER BY chunk_index", (row["id"],)).fetchall()
@@ -363,7 +389,8 @@ class UploadStore:
 
     def recover(self) -> None:
         with self.guard:
-            self._idle()
+            if self.active_writers:
+                raise UploadError(409, "WRITER_BUSY")
             for row in self.db.execute("SELECT * FROM uploads WHERE cleaned_at IS NULL").fetchall():
                 if row["state"] in ACTIVE | {"uploaded"}:
                     try:
@@ -390,7 +417,7 @@ class UploadStore:
                 for path in paths:
                     if path.exists():
                         path.unlink()
-                sync_dir(folder)
+                    sync_dir(folder)
                 folder.rmdir()  # No recursive delete, and only this known empty directory.
                 sync_dir(self.uploads_dir)
             self.fault("files_removed")
@@ -402,13 +429,15 @@ class UploadStore:
 
     def maintain(self) -> dict:
         with self.guard:
-            if self.active is not None:
-                return {"writer_active": True}
             for row in self.db.execute("SELECT id FROM uploads WHERE state IN ('created','uploading') AND expires_at<=?",
                                        (self.clock(),)).fetchall():
-                self._expire(row["id"])
+                if row["id"] not in self.active_writers:
+                    self._expire(row["id"])
             for row in self.db.execute("SELECT id FROM uploads WHERE cleanup_pending=1 AND cleaned_at IS NULL").fetchall():
-                self._cleanup(row["id"])
+                if row["id"] not in self.active_writers:
+                    self._cleanup(row["id"])
+            if self.active_writers:
+                return {"writer_active": True}
             known = {r[0] for r in self.db.execute("SELECT id FROM uploads")}
             orphans = sum(p.name not in known for p in self.uploads_dir.iterdir())
             return {"writer_active": False, "unknown_entries_preserved": orphans}
@@ -420,10 +449,13 @@ class ChunkWriter:
         self.expected_hash, self.length, self.replay = digest, length, replay
         self.count, self.hash = 0, hashlib.sha256()
         self.scratch = None if replay else store._file(row["id"], "incoming.chunk").open("xb")
+        self.lock = threading.RLock()
+        self.finished = False
+        self.closed = False
 
     def write(self, block: bytes) -> None:
-        with self.store.guard:
-            if self.store.active is not self:
+        with self.lock:
+            if self.closed or not self.store.is_active_writer(self.row["id"], self):
                 raise UploadError(409, "WRITER_CLOSED")
             if self.count + len(block) > self.length:
                 raise UploadError(413, "CHUNK_TOO_LARGE")
@@ -441,14 +473,17 @@ class ChunkWriter:
             self.count += len(block)
 
     def finish(self) -> dict:
-        with self.store.guard:
-            if self.store.active is not self:
+        with self.lock:
+            if self.closed or not self.store.is_active_writer(self.row["id"], self):
                 raise UploadError(409, "WRITER_CLOSED")
             if self.count != self.length or self.hash.hexdigest() != self.expected_hash:
                 raise UploadError(422, "CHUNK_LENGTH_OR_HASH_MISMATCH")
             if self.replay:
-                self.store.active = None
-                return {**self.store._view(self.store._row(self.row["id"])), "replayed": True}
+                self.finished = True
+                self.closed = True
+                self.store._unregister_writer(self.row["id"], self)
+                with self.store.guard:
+                    return {**self.store._view(self.store._row(self.row["id"])), "replayed": True}
             sync_file(self.scratch)
             self.scratch.close()
             self.scratch = None
@@ -466,32 +501,41 @@ class ChunkWriter:
                 sync_file(target)
             self.store.fault("payload_fsync")
             now, committed = self.store.clock(), self.offset + self.length
-            with self.store.transaction():
-                self.store.db.execute("INSERT INTO receipts VALUES (?,?,?,?,?,?)",
-                    (self.row["id"], self.index, self.offset, self.length, self.expected_hash, now))
-                self.store.db.execute("UPDATE uploads SET committed_bytes=?,state='uploading',reserved_bytes=?,"
-                    "updated_at=?,expires_at=? WHERE id=?", (committed,
-                    self.row["size_bytes"] - committed + min(self.row["size_bytes"], self.row["chunk_bytes"]),
-                    now, min(now + self.store.config.idle_seconds, self.row["absolute_expires_at"]), self.row["id"]))
-                self.store.fault("before_receipt_commit")
-            self.store.fault("receipt_commit")
-            # After COMMIT a cleanup error must never truncate a committed chunk.
-            self.store._repair(self.row["id"])
-            self.store.active = None
-            return {**self.store._view(self.store._row(self.row["id"])), "replayed": False}
+            with self.store.guard:
+                with self.store.transaction():
+                    self.store.db.execute("INSERT INTO receipts VALUES (?,?,?,?,?,?)",
+                        (self.row["id"], self.index, self.offset, self.length, self.expected_hash, now))
+                    self.store.db.execute("UPDATE uploads SET committed_bytes=?,state='uploading',reserved_bytes=?,"
+                        "updated_at=?,expires_at=? WHERE id=?", (committed,
+                        self.row["size_bytes"] - committed + min(self.row["size_bytes"], self.row["chunk_bytes"]),
+                        now, min(now + self.store.config.idle_seconds, self.row["absolute_expires_at"]), self.row["id"]))
+                    self.store.fault("before_receipt_commit")
+                self.store.fault("receipt_commit")
+                # After COMMIT a cleanup error must never truncate a committed chunk.
+                self.store._repair(self.row["id"])
+                self.finished = True
+                self.closed = True
+                self.store._unregister_writer(self.row["id"], self)
+                return {**self.store._view(self.store._row(self.row["id"])), "replayed": False}
 
     def abort(self) -> None:
-        with self.store.guard:
+        with self.lock:
+            if self.finished:
+                return
+            self.closed = True
             if self.scratch is not None:
-                self.scratch.close()
+                try:
+                    self.scratch.close()
+                except OSError:
+                    pass
                 self.scratch = None
             try:
-                if self.store.active is self and not self.replay:
+                if self.store.is_active_writer(self.row["id"], self) and not self.replay:
                     # Read authoritative DB state after an ambiguous COMMIT. If DB
                     # cannot be read, leave files untouched for startup recovery.
                     self.store._repair(self.row["id"])
             except OSError:
-                self.store._fail(self.row["id"], "RECOVERY_IO_FAILED")
+                with self.store.guard:
+                    self.store._fail(self.row["id"], "RECOVERY_IO_FAILED")
             finally:
-                if self.store.active is self:
-                    self.store.active = None
+                self.store._unregister_writer(self.row["id"], self)
