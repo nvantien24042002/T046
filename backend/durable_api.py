@@ -30,12 +30,59 @@ class CreateUpload(BaseModel):
     size_bytes: int = Field(gt=0, strict=True)
 
 
+class UploadLockManager:
+    """Manages per-upload asyncio locks with ref-counting and safe lifecycle cleanup.
+
+    Guarantees:
+    - All concurrent requests for the same upload_id acquire the exact same lock.
+    - An upload lock is only pruned from the registry when its reference count drops
+      to 0 (i.e. no request is holding or waiting for the lock).
+    - Even if a request fails, times out, is cancelled, or completes/cancels the upload,
+      its reference is decremented in a finally block without removing the lock out from
+      under other waiting or active requests.
+    - Memory does not grow unbounded because when the last active/queued request finishes,
+      the entry is automatically evicted.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._refs: dict[str, int] = {}
+
+    @asynccontextmanager
+    async def lock(self, upload_id: str):
+        lock = self._locks.get(upload_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[upload_id] = lock
+            self._refs[upload_id] = 0
+        self._refs[upload_id] += 1
+        try:
+            async with lock:
+                yield
+        finally:
+            new_refs = self._refs.get(upload_id, 1) - 1
+            if new_refs <= 0:
+                self._refs.pop(upload_id, None)
+                self._locks.pop(upload_id, None)
+            else:
+                self._refs[upload_id] = new_refs
+
+    def is_locked(self, upload_id: str) -> bool:
+        lock = self._locks.get(upload_id)
+        return lock.locked() if lock is not None else False
+
+    def ref_count(self, upload_id: str) -> int:
+        return self._refs.get(upload_id, 0)
+
+    def has_lock(self, upload_id: str) -> bool:
+        return upload_id in self._locks
+
+
 def create_app(config: UploadConfig, owners: dict[str, str], *,
                store_factory=UploadStore, origins: tuple[str, ...] = (
                    "http://127.0.0.1:8011", "http://localhost:8011")) -> FastAPI:
     validate_owners(owners)
     keys = {owner: hashlib.sha256(key.encode()).digest() for owner, key in owners.items()}
-    mutations = asyncio.Lock()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -44,14 +91,13 @@ def create_app(config: UploadConfig, owners: dict[str, str], *,
         async def maintenance():
             while True:
                 await asyncio.sleep(config.maintenance_seconds)
-                async with mutations:
-                    try:
-                        await run_in_threadpool(app.state.store.maintain)
-                    except (OSError, sqlite3.Error):
-                        # Fail closed if the registry becomes unavailable; do not
-                        # silently continue cleanup or serve new acknowledgements.
-                        app.state.unhealthy = True
-                        return
+                try:
+                    await run_in_threadpool(app.state.store.maintain)
+                except (OSError, sqlite3.Error):
+                    # Fail closed if the registry becomes unavailable; do not
+                    # silently continue cleanup or serve new acknowledgements.
+                    app.state.unhealthy = True
+                    return
         app.state.unhealthy = False
         task = asyncio.create_task(maintenance())
         try:
@@ -134,9 +180,11 @@ def create_app(config: UploadConfig, owners: dict[str, str], *,
             metadata = CreateUpload.model_validate_json(body)
         except ValidationError:
             raise UploadError(422, "INVALID_METADATA") from None
-        async with mutations:
-            return await run_in_threadpool(app.state.store.create, identity, metadata.filename,
-                                          metadata.size_bytes, request.headers.get("idempotency-key", ""))
+        return await run_in_threadpool(app.state.store.create, identity, metadata.filename,
+                                      metadata.size_bytes, request.headers.get("idempotency-key", ""))
+
+    upload_locks = UploadLockManager()
+    app.state.upload_locks = upload_locks
 
     @app.get(PREFIX + "/{upload_id}")
     async def status(upload_id: str, request: Request) -> dict:
@@ -153,7 +201,7 @@ def create_app(config: UploadConfig, owners: dict[str, str], *,
             offset = int(request.headers.get("upload-offset", ""))
         except ValueError:
             raise UploadError(422, "INVALID_OFFSET") from None
-        async with mutations:
+        async with upload_locks.lock(upload_id):
             writer = await run_in_threadpool(app.state.store.begin, identity, upload_id, cap(request),
                                             index, offset, request.headers.get("x-chunk-sha256", ""))
             try:
@@ -175,13 +223,13 @@ def create_app(config: UploadConfig, owners: dict[str, str], *,
     @app.post(PREFIX + "/{upload_id}/complete")
     async def complete(upload_id: str, request: Request) -> dict:
         identity = owner(request)
-        async with mutations:
+        async with upload_locks.lock(upload_id):
             return await run_in_threadpool(app.state.store.complete, identity, upload_id, cap(request))
 
     @app.delete(PREFIX + "/{upload_id}")
     async def cancel(upload_id: str, request: Request) -> dict:
         identity = owner(request)
-        async with mutations:
+        async with upload_locks.lock(upload_id):
             return await run_in_threadpool(app.state.store.cancel, identity, upload_id, cap(request))
 
     return app

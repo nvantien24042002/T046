@@ -95,14 +95,13 @@ def test_fingerprint_and_global_concurrency(integrated_api):
         return tc.post('/api/v1/uploads', headers={'X-Owner-Key':owners[who], 'Idempotency-Key':token}, json={'filename':'arbitrary.zip','size_bytes':len(data)})
     with ThreadPoolExecutor(2) as executor:
         results=list(executor.map(lambda who:create(who, key), ['alice','bob']))
-    assert sorted(r.status_code for r in results)==[201,429]
-    assert next(r for r in results if r.status_code==429).json()['error']['code']=='ONE_ACTIVE_UPLOAD'
-    winner='alice' if results[0].status_code==201 else 'bob'
+    assert all(r.status_code == 201 for r in results)
+    assert len({r.json()['upload_id'] for r in results}) == 2
     with ThreadPoolExecutor(2) as executor:
-        retries=list(executor.map(lambda _:create(winner,key),range(2)))
+        retries=list(executor.map(lambda _:create('alice',key),range(2)))
     assert len({r.json()['upload_id'] for r in retries})==1
     assert all(r.status_code==201 for r in retries)
-    assert app.state.store.db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0]==1
+    assert app.state.store.db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0]==2
 
 
 def test_duplicate_analysis_requests_reuse_pipeline(integrated_api,tmp_path,monkeypatch):
@@ -155,11 +154,10 @@ def test_same_name_size_different_content_does_not_adopt_zero_byte_session(integ
     tc, app, owners=integrated_api
     adapter=BackendClient(owner_key=owners['alice'],http_client=tc)
     adapter.create_upload('same.zip',12,source_key('same.zip',b'a'*12))
-    with pytest.raises(BackendError) as caught:
-        adapter.stream_upload(io.BytesIO(b'b'*12),'same.zip',12,idempotency_key=source_key('same.zip',b'b'*12))
-    assert caught.value.code=='ONE_ACTIVE_UPLOAD'
-    assert app.state.store.db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0]==1
-    assert app.state.store.db.execute('SELECT committed_bytes FROM uploads').fetchone()[0]==0
+    result = adapter.stream_upload(io.BytesIO(b'b'*12),'same.zip',12,idempotency_key=source_key('same.zip',b'b'*12))
+    assert result['state']=='uploaded'
+    assert app.state.store.db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0]==2
+    assert app.state.store.db.execute('SELECT committed_bytes FROM uploads WHERE request_key=?',(source_key('same.zip',b'a'*12),)).fetchone()[0]==0
 
 
 def test_lost_complete_ack_reuses_sealed_session(integrated_api):

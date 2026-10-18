@@ -215,7 +215,7 @@ def test_one_active_upload_policy_and_cancellation_recovery(monkeypatch):
             assert res1.status_code == 201
             upload_id = res1.json()["upload_id"]
 
-            # Second distinct upload triggers 429 ONE_ACTIVE_UPLOAD
+            # Second distinct upload succeeds concurrently
             res2 = client.post(
                 "/api/browser/v1/uploads",
                 headers={
@@ -225,8 +225,8 @@ def test_one_active_upload_policy_and_cancellation_recovery(monkeypatch):
                 },
                 json={"filename": "test2.zip", "size_bytes": 2000},
             )
-            assert res2.status_code == 429
-            assert res2.json()["error"]["code"] == "ONE_ACTIVE_UPLOAD"
+            assert res2.status_code == 201
+            assert res2.json()["upload_id"] != upload_id
 
             # Cancel first upload
             cancel_res = client.delete(

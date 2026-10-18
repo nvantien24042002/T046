@@ -30,6 +30,7 @@ from starlette.responses import JSONResponse, Response
 
 from core.pipeline import execute_pipeline, read_single_image, get_annotated_preview_image
 from backend.dashboard_projection import DashboardRequest, project_dashboard, canonical_image_path
+from backend.durable_api import UploadLockManager
 from core.image_quality import DEFAULT_IMAGE_CFG
 from core.label_audit import DEFAULT_LABEL_CFG
 from datasets.limits import Limits, ValidationError
@@ -139,7 +140,7 @@ def create_integrated_app(
 ) -> FastAPI:
     validate_owners(owners)
     keys = {owner: hashlib.sha256(key.encode()).digest() for owner, key in owners.items()}
-    mutations = asyncio.Lock()
+    analysis_lock = asyncio.Lock()
     validation_limits = limits or Limits()
 
     if origins is None:
@@ -154,12 +155,11 @@ def create_integrated_app(
         async def maintenance():
             while True:
                 await asyncio.sleep(config.maintenance_seconds)
-                async with mutations:
-                    try:
-                        await run_in_threadpool(app.state.store.maintain)
-                    except (OSError, sqlite3.Error):
-                        app.state.unhealthy = True
-                        return
+                try:
+                    await run_in_threadpool(app.state.store.maintain)
+                except (OSError, sqlite3.Error):
+                    app.state.unhealthy = True
+                    return
 
         task = None
         try:
@@ -333,14 +333,16 @@ def create_integrated_app(
             metadata = CreateUpload.model_validate_json(body)
         except PydanticValidationError:
             raise UploadError(422, "INVALID_METADATA") from None
-        async with mutations:
-            return await run_in_threadpool(
-                app.state.store.create,
-                identity,
-                metadata.filename,
-                metadata.size_bytes,
-                request.headers.get("idempotency-key", ""),
-            )
+        return await run_in_threadpool(
+            app.state.store.create,
+            identity,
+            metadata.filename,
+            metadata.size_bytes,
+            request.headers.get("idempotency-key", ""),
+        )
+
+    upload_locks = UploadLockManager()
+    app.state.upload_locks = upload_locks
 
     @app.get(PREFIX + "/{upload_id}")
     async def upload_status(upload_id: str, request: Request) -> dict:
@@ -359,7 +361,7 @@ def create_integrated_app(
             offset = int(request.headers.get("upload-offset", ""))
         except ValueError:
             raise UploadError(422, "INVALID_OFFSET") from None
-        async with mutations:
+        async with upload_locks.lock(upload_id):
             writer = await run_in_threadpool(
                 app.state.store.begin,
                 identity,
@@ -386,13 +388,13 @@ def create_integrated_app(
     @app.post(PREFIX + "/{upload_id}/complete")
     async def complete_upload(upload_id: str, request: Request) -> dict:
         identity = session_owner(upload_id, request)
-        async with mutations:
+        async with upload_locks.lock(upload_id):
             return await run_in_threadpool(app.state.store.complete, identity, upload_id, cap(request))
 
     @app.delete(PREFIX + "/{upload_id}")
     async def cancel_upload(upload_id: str, request: Request) -> dict:
         identity = session_owner(upload_id, request)
-        async with mutations:
+        async with upload_locks.lock(upload_id):
             return await run_in_threadpool(app.state.store.cancel, identity, upload_id, cap(request))
 
     # ---------------------------------------------------------
@@ -437,15 +439,14 @@ def create_integrated_app(
     async def cleanup_attempt(upload_id: str, attempt_id: str, request: Request) -> dict:
         identity = session_owner(upload_id, request)
         capability = cap(request)
-        async with mutations:
-            cleaned = await run_in_threadpool(
-                app.state.manager.cleanup_attempt,
-                identity,
-                upload_id,
-                capability,
-                attempt_id,
-            )
-            return {"cleaned": cleaned}
+        cleaned = await run_in_threadpool(
+            app.state.manager.cleanup_attempt,
+            identity,
+            upload_id,
+            capability,
+            attempt_id,
+        )
+        return {"cleaned": cleaned}
 
     # ---------------------------------------------------------
     # Dataset Query and Pipeline Routes (Stage 5 Integration)
@@ -500,7 +501,7 @@ def create_integrated_app(
         ).encode()).hexdigest()
 
         def do_analysis():
-            # mutations serializes both the cache check and pipeline execution.
+            # analysis_lock serializes both the cache check and pipeline execution.
             # Identical concurrent requests and lost-response retries reuse results.
             cache_file = app.state.cache_dir / f"{dataset_id}.json"
             request_cache = app.state.cache_dir / f"{dataset_id}.{request_fingerprint}.json"
@@ -549,7 +550,7 @@ def create_integrated_app(
                 cache_file.write_text(encoded, encoding="utf-8")
                 return bundle
 
-        async with mutations:
+        async with analysis_lock:
             return await run_in_threadpool(do_analysis)
 
     @app.get(DATASET_PREFIX + "/{dataset_id}/results")
@@ -572,7 +573,8 @@ def create_integrated_app(
                 raise UploadError(409, "ANALYSIS_NOT_RUN")
             return json.loads(cache_file.read_text(encoding="utf-8"))
 
-        return await run_in_threadpool(load_cached)
+        async with analysis_lock:
+            return await run_in_threadpool(load_cached)
 
     @app.post(DATASET_PREFIX + "/{dataset_id}/dashboard")
     async def dashboard(dataset_id: str, request: Request):
@@ -607,7 +609,7 @@ def create_integrated_app(
                 response["source"] = {"request_fingerprint": selection.expected_fingerprint,
                     "result_id": None, "payload_sha256": None}
                 return JSONResponse(response, headers={"Cache-Control": "no-store"})
-        async with mutations:
+        async with analysis_lock:
             return await run_in_threadpool(project)
 
     @app.get(DATASET_PREFIX + "/{dataset_id}/preview")
