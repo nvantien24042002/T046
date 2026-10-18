@@ -12,7 +12,7 @@ export const dashboardSchema = z.object({
   metrics: z.array(z.object({ key: z.string(), label: z.string(), value: scalar })),
   tables: z.array(z.object({ key: z.string(), title: z.string(), rows: z.array(z.record(z.string(), z.unknown())), export_filename: z.string().nullable() })),
   charts: z.array(z.object({ key: z.string(), title: z.string(), rows: z.array(z.object({ name: z.string(), value: z.number().finite().nonnegative() })) })),
-  controls: z.array(z.object({ key: z.string(), label: z.string(), choices: z.array(z.string()), value: z.string().nullable() })),
+  controls: z.array(z.object({ key: z.string(), label: z.string(), choices: z.array(z.string()), value: z.union([z.string(), z.array(z.string())]).nullable() })),
   notes: z.array(z.string()),
   parameters: z.array(z.object({ key: z.string(), label: z.string(), value: z.number().finite() })).optional(),
   can_submit_targets: z.boolean().optional(),
@@ -26,7 +26,8 @@ export async function readDashboard(page: DashboardPage, result: ActiveResult, t
   const descriptor = result.descriptor
   const fingerprint = descriptor?.request_fingerprint ?? result.payload.request_fingerprint
   if (!descriptor && !fingerprint) throw new Error('Kết quả này thiếu fingerprint từ backend. Cần phân tích lại; không dùng kết quả mới nhất thay thế.')
-  const base = new URL(descriptor ? config.analyticsBaseUrl : config.baseUrl)
+  const rawBase = descriptor ? config.analyticsBaseUrl : config.baseUrl
+  const base = rawBase ? new URL(rawBase) : new URL('/', globalThis.location?.origin ?? 'http://localhost')
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw new Error('Invalid backend destination')
   const path = descriptor
     ? `/analytics/v1/datasets/${encodeURIComponent(dataset)}/results/${encodeURIComponent(descriptor.result_id)}/dashboard`

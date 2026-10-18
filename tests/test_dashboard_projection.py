@@ -167,6 +167,43 @@ def test_scene_counts_and_metadata_are_backend_owned(source):
     assert response["tables"][0]["rows"][0]["image_name"] == "day.jpg"
     assert response["tables"][0]["rows"][0]["image_path"] is None
 
+def test_scene_multiselect_filter(source):
+    payload, summary = source
+    payload["distribution_images"] = [
+        {"image_id": "1", "image_name": "sun.jpg", "weather": "sunny", "timeofday": "day"},
+        {"image_id": "2", "image_name": "rain.jpg", "weather": "rain", "timeofday": "night"},
+        {"image_id": "3", "image_name": "fog.jpg", "weather": "fog", "timeofday": "day"},
+        {"image_id": "4", "image_name": "unresolved.jpg", "weather": "missing", "timeofday": "unknown"},
+    ]
+    # Multi-select weather: sunny or rain
+    res = project_dashboard(DashboardRequest(page="scene-finder", query={"weather": ["sunny", "rain"]}), payload, summary)
+    assert next(m["value"] for m in res["metrics"] if m["key"] == "matched") == 2
+    assert {r["image_name"] for r in res["tables"][0]["rows"]} == {"sun.jpg", "rain.jpg"}
+
+    # Multi-select weather and timeofday: (sunny or rain) and night -> only rain.jpg
+    res2 = project_dashboard(DashboardRequest(page="scene-finder", query={"weather": ["sunny", "rain"], "timeofday": "night"}), payload, summary)
+    assert next(m["value"] for m in res2["metrics"] if m["key"] == "matched") == 1
+    assert res2["tables"][0]["rows"][0]["image_name"] == "rain.jpg"
+
+    # Preserves missing/unknown semantics
+    res_miss = project_dashboard(DashboardRequest(page="scene-finder", query={"weather": "missing"}), payload, summary)
+    assert next(m["value"] for m in res_miss["metrics"] if m["key"] == "matched") == 1
+    assert res_miss["tables"][0]["rows"][0]["image_name"] == "unresolved.jpg"
+
+def test_label_multiselect_filter(source):
+    payload, summary = source
+    classes = [r["label"] for r in payload["audit_rows"]]
+    unique_classes = sorted(set(classes))
+    if len(unique_classes) >= 2:
+        selected = unique_classes[:2]
+        res = project_dashboard(DashboardRequest(page="labels", query={"class_label": selected}), payload, summary)
+        assert all(r["label"] in selected for r in res["tables"][0]["rows"])
+        assert next(m["value"] for m in res["metrics"] if m["key"] == "boxes") == len(res["tables"][0]["rows"])
+
+        # Multi-select priority
+        res_pri = project_dashboard(DashboardRequest(page="labels", query={"priority": ["HIGH", "MEDIUM"]}), payload, summary)
+        assert all(r["priority"] in ["HIGH", "MEDIUM"] for r in res_pri["tables"][0]["rows"])
+
 @pytest.mark.parametrize("page", ["coverage","scene-finder","distribution","labels"])
 def test_annotation_capabilities_are_not_inferred_from_ui(source,page):
     payload,summary=source

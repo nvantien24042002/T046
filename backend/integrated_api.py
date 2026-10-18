@@ -200,8 +200,14 @@ def create_integrated_app(
         ],
     )
 
+    enforce_local = os.environ.get("CVAT_ENFORCE_LOCAL", "1").lower() not in ("0", "false", "no")
+
     @app.middleware("http")
     async def local_only(request: Request, call_next):
+        if not enforce_local:
+            if request.headers.get("origin") and request.headers["origin"] not in origins:
+                return JSONResponse({"error": {"code": "ORIGIN_DENIED"}}, status_code=403)
+            return await call_next(request)
         try:
             local = request.client is not None and ipaddress.ip_address(request.client.host).is_loopback
         except ValueError:

@@ -7,6 +7,7 @@ datasets into memory.
 from __future__ import annotations
 
 import io
+import math
 from typing import Any, Callable
 import zipfile
 
@@ -110,6 +111,25 @@ def get_preview_image(
     return Image.open(io.BytesIO(raw))
 
 
+def _overlay_coordinates(
+    box: dict[str, Any], width: int, height: int
+) -> tuple[int, int, int, int] | None:
+    """Validate and clip display coordinates without changing annotation data."""
+    if width < 2 or height < 2:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(box[key]) for key in ("xtl", "ytl", "xbr", "ybr"))
+        if not all(math.isfinite(v) for v in (x1, y1, x2, y2)) or x2 <= x1 or y2 <= y1:
+            return None
+        # Clip before integer conversion: even finite floats may exceed OpenCV's
+        # integer range. Keep the existing rounding for in-bounds coordinates.
+        x1, x2 = (int(round(min(max(x, 0), width - 1))) for x in (x1, x2))
+        y1, y2 = (int(round(min(max(y, 0), height - 1))) for y in (y1, y2))
+        return (x1, y1, x2, y2) if x2 > x1 and y2 > y1 else None
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
 def get_annotated_preview_image(
     reader: dict[str, Any],
     image_path: str,
@@ -123,17 +143,15 @@ def get_annotated_preview_image(
     if image is None:
         raise ValueError("Cannot decode preview image")
 
+    height, width = image.shape[:2]
     for b in boxes:
-        try:
-            x1 = int(round(float(b["xtl"])))
-            y1 = int(round(float(b["ytl"])))
-            x2 = int(round(float(b["xbr"])))
-            y2 = int(round(float(b["ybr"])))
-            label = str(b.get("label", ""))
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            if label:
-                cv2.putText(image, label, (x1, max(15, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        except (ValueError, TypeError, KeyError):
+        coords = _overlay_coordinates(b, width, height)
+        if coords is None:
             continue
+        x1, y1, x2, y2 = coords
+        label = str(b.get("label", ""))
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        if label:
+            cv2.putText(image, label, (x1, max(15, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
     return image

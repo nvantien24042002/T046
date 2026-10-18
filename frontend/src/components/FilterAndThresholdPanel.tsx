@@ -127,28 +127,117 @@ export function FilterAndThresholdPanel({
           <div className="controls-form-block">
             <h3 className="sub-panel-title">Bộ lọc thuộc tính</h3>
             <div className="controls-grid">
-              {view.controls.map((control) => (
-                <div key={control.key} className="form-field-group">
-                  <label htmlFor={`ctrl-${control.key}`} className="field-label">
-                    {control.label}
-                  </label>
-                  <select
-                    id={`ctrl-${control.key}`}
-                    className="field-select"
-                    value={typeof query[control.key] === 'string' ? (query[control.key] as string) : control.value ?? ''}
-                    onChange={(event) =>
-                      onUpdate({ ...query, [control.key]: event.target.value || null })
-                    }
-                  >
-                    <option value="">Tất cả</option>
-                    {control.choices.map((choice) => (
-                      <option key={choice} value={choice}>
-                        {choice}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
+              {view.controls.map((control) => {
+                if (control.key === 'review_scope') {
+                  const isChecked = query['review_scope'] === 'review' || control.value === 'review'
+                  return (
+                    <div key={control.key} className="form-field-group full-width-field">
+                      <label htmlFor={`ctrl-${control.key}`} className="checkbox-toggle-label">
+                        <input
+                          id={`ctrl-${control.key}`}
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(event) =>
+                            onUpdate({ ...query, review_scope: event.target.checked ? 'review' : null })
+                          }
+                        />
+                        <span>{control.label} (chỉ hiển thị box có tín hiệu cảnh báo REVIEW)</span>
+                      </label>
+                    </div>
+                  )
+                }
+
+                const rawVal = query[control.key] !== undefined ? query[control.key] : control.value
+                const selectedList: string[] = Array.isArray(rawVal)
+                  ? (rawVal as unknown[]).map(String)
+                  : typeof rawVal === 'string' && rawVal.length > 0
+                  ? [rawVal]
+                  : []
+
+                const handleToggleChoice = (choice: string) => {
+                  let next: string[]
+                  if (selectedList.includes(choice)) {
+                    next = selectedList.filter((c) => c !== choice)
+                  } else {
+                    next = [...selectedList, choice]
+                  }
+                  onUpdate({
+                    ...query,
+                    [control.key]: next.length === 0 ? null : next,
+                  })
+                }
+
+                const isAllSelected = selectedList.length === 0 || selectedList.length === control.choices.length
+
+                return (
+                  <div key={control.key} className="form-field-group filter-dimension-card">
+                    <div className="filter-dimension-header">
+                      <label htmlFor={`ctrl-${control.key}`} className="field-label">
+                        {control.label}
+                      </label>
+                      <span className="filter-count-badge">
+                        {isAllSelected ? 'Tất cả' : `${selectedList.length}/${control.choices.length}`}
+                      </span>
+                    </div>
+
+                    <div className="multi-select-chip-cluster" role="group" aria-label={`Bộ lọc ${control.label}`}>
+                      <button
+                        type="button"
+                        className={`filter-chip ${isAllSelected ? 'chip-active' : ''}`}
+                        onClick={() => onUpdate({ ...query, [control.key]: null })}
+                      >
+                        Tất cả
+                      </button>
+                      {control.choices.map((choice) => {
+                        const active = !isAllSelected && selectedList.includes(choice)
+                        const isMissing = choice === 'missing'
+                        const isUnknown = choice === 'unknown'
+                        const isSpecial = isMissing || isUnknown
+                        return (
+                          <button
+                            key={choice}
+                            type="button"
+                            className={`filter-chip ${active ? 'chip-active' : ''} ${isSpecial ? 'chip-special' : ''} ${
+                              ['HIGH', 'MEDIUM', 'LOW'].includes(choice) ? `chip-${choice.toLowerCase()}` : ''
+                            }`}
+                            onClick={() => handleToggleChoice(choice)}
+                            title={
+                              isMissing
+                                ? 'Chưa có metadata'
+                                : isUnknown
+                                ? 'Đã gán nhưng chưa xác định'
+                                : choice
+                            }
+                          >
+                            <span>{choice}</span>
+                            {isMissing && <span className="chip-hint"> (Thiếu)</span>}
+                            {isUnknown && <span className="chip-hint"> (Chưa rõ)</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Accessible hidden fallback select for form compatibility */}
+                    <select
+                      id={`ctrl-${control.key}`}
+                      className="field-select sr-select"
+                      value={typeof rawVal === 'string' ? rawVal : ''}
+                      onChange={(event) =>
+                        onUpdate({ ...query, [control.key]: event.target.value || null })
+                      }
+                      aria-hidden="true"
+                      tabIndex={-1}
+                    >
+                      <option value="">Tất cả</option>
+                      {control.choices.map((choice) => (
+                        <option key={choice} value={choice}>
+                          {choice}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

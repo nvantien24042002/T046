@@ -18,6 +18,10 @@ import { BrowserExportButton } from './BrowserExportButton'
 import { Pagination, paginate } from './Pagination'
 import { ImagePreview } from './ImagePreview'
 import type { DatasetSummary } from '../api/datasets'
+import { QualityAnalysisCharts, CoverageComparisonChart } from './AnalysisCharts'
+import { ImageQualityConfigurationPanel } from './ImageQualityConfiguration'
+import { CoverageTargetsPanel } from './CoverageTargetsPanel'
+import { coverageTargetsSchema, type CoverageGeneration } from '../api/coverageTargets'
 
 const titles: Record<DashboardPage, string> = {
   overview: 'Tổng quan dữ liệu',
@@ -58,6 +62,8 @@ export function BackendDashboard({ page }: { page: DashboardPage }) {
         </div>
         <ResultIdentity />
       </div>
+
+      {page === 'quality' && !(state?.activeSummary?.ready && !state.activeSummary.capabilities.image_quality) && <ImageQualityConfigurationPanel />}
 
       {!state?.activeResult || state.loading || state.error ? (
         <ResultStatus />
@@ -167,7 +173,23 @@ function DashboardSession({ page }: { page: DashboardPage }) {
         </button>
       </div>
 
-      {canSubmitTargets && <TargetInput onApply={(targets) => update({ ...query, targets })} />}
+      {page === 'coverage' && canSubmitTargets && <CoverageTargetsPanel
+        applied={view?.tables.find((table) => table.key === 'targets')?.rows ?? (view ? [] : undefined)}
+        busy={!view && !error}
+        choices={{
+          class: [...new Set(result?.payload.distribution_boxes.map((r) => r.label))],
+          weather: [...new Set(result?.payload.distribution_images.map((r) => r.weather))],
+          timeofday: [...new Set(result?.payload.distribution_images.map((r) => r.timeofday))],
+          occluded: ['yes', 'no', 'unknown'],
+        }}
+        onApply={(targets) => update({ targets })}
+        onGenerate={async (generate: CoverageGeneration, signal) => {
+          if (!result || !state.readDashboard) throw new Error('Không có dữ liệu để sinh tổ hợp.')
+          const next = await state.readDashboard('coverage', result, token ?? '', { generate }, signal)
+          if (next.state === 'unsupported') throw new Error('Không hỗ trợ sinh tổ hợp.')
+          return coverageTargetsSchema.parse(next.tables.find((table) => table.key === 'targets')?.rows ?? [])
+        }}
+      />}
 
       {error ? (
         <div className="dashboard-error-container">
@@ -239,7 +261,9 @@ function DashboardSession({ page }: { page: DashboardPage }) {
               <QAWarningsPanel view={view} page={page} />
 
               {/* Enhanced Visualizations */}
-              <VisualizationsSection view={view} />
+              <VisualizationsSection view={view} page={page} />
+              {page === 'quality' && <QualityAnalysisCharts view={view} />}
+              {page === 'coverage' && <CoverageComparisonChart key={JSON.stringify(query)} view={view} />}
 
               {/* Server Tables */}
               <div className="server-tables-container">
@@ -255,10 +279,13 @@ function DashboardSession({ page }: { page: DashboardPage }) {
   )
 }
 
-function VisualizationsSection({ view }: { view: DashboardView }) {
+function VisualizationsSection({ view, page }: { view: DashboardView; page?: DashboardPage }) {
   const classesTable = view.tables.find((t) => t.key === 'classes')
   const sizesTable = view.tables.find((t) => t.key === 'sizes')
   const occlusionTable = view.tables.find((t) => t.key === 'occlusion')
+  const auditTable = view.tables.find((t) => t.key === 'audit')
+  const labelClassesTable = view.tables.find((t) => t.key === 'label_classes')
+  const previewImagesTable = view.tables.find((t) => t.key === 'preview_images')
 
   const classesChart = view.charts.find((c) => c.key === 'classes')
   const weatherChart = view.charts.find((c) => c.key === 'weather')
@@ -283,12 +310,73 @@ function VisualizationsSection({ view }: { view: DashboardView }) {
     }))
   }
 
+  // Derive weather and timeofday charts for scene-finder if missing from view.charts
+  let effectiveWeatherChart = weatherChart
+  let effectiveTimeofdayChart = timeofdayChart
+  if (page === 'scene-finder' && (!weatherChart || !timeofdayChart) && previewImagesTable?.rows.length) {
+    const wCounts: Record<string, number> = {}
+    const tCounts: Record<string, number> = {}
+    for (const r of previewImagesTable.rows) {
+      const w = String(r['weather'] ?? 'missing')
+      const tod = String(r['timeofday'] ?? 'missing')
+      wCounts[w] = (wCounts[w] ?? 0) + 1
+      tCounts[tod] = (tCounts[tod] ?? 0) + 1
+    }
+    if (!weatherChart && Object.keys(wCounts).length > 0) {
+      effectiveWeatherChart = {
+        key: 'weather',
+        title: 'Phân bố Thời tiết (Filtered)',
+        rows: Object.entries(wCounts).map(([name, value]) => ({ name, value })),
+      }
+    }
+    if (!timeofdayChart && Object.keys(tCounts).length > 0) {
+      effectiveTimeofdayChart = {
+        key: 'timeofday',
+        title: 'Phân bố Thời điểm (Filtered)',
+        rows: Object.entries(tCounts).map(([name, value]) => ({ name, value })),
+      }
+    }
+  }
+
+  // Derive priorities chart for labels if missing from view.charts
+  let effectivePrioritiesChart = prioritiesChart
+  if (page === 'labels' && !prioritiesChart && auditTable?.rows.length) {
+    const pCounts: Record<string, number> = { HIGH: 0, MEDIUM: 0, LOW: 0 }
+    for (const r of auditTable.rows) {
+      const p = String(r['priority'] ?? '').toUpperCase()
+      if (p === 'HIGH' || p === 'MEDIUM' || p === 'LOW') {
+        pCounts[p] = (pCounts[p] ?? 0) + 1
+      }
+    }
+    const pRows = Object.entries(pCounts)
+      .filter(([, v]) => v > 0)
+      .map(([name, value]) => ({ name, value }))
+    if (pRows.length > 0) {
+      effectivePrioritiesChart = {
+        key: 'priorities',
+        title: 'Phân bố mức độ ưu tiên (Priority)',
+        rows: pRows,
+      }
+    }
+  }
+
+  // Derive class review rate chart for labels from label_classes table
+  let classReviewRateData: { name: string; value: number }[] = []
+  if (page === 'labels' && labelClassesTable?.rows.length) {
+    classReviewRateData = labelClassesTable.rows
+      .filter((r) => typeof r['review_rate_pct'] === 'number')
+      .map((r) => ({
+        name: String(r['label'] ?? ''),
+        value: Number(r['review_rate_pct'] ?? 0),
+      }))
+  }
+
   const elevatedKeys = new Set<string>()
   if (classDistData.length) elevatedKeys.add('classes')
-  if (weatherChart) elevatedKeys.add('weather')
-  if (timeofdayChart) elevatedKeys.add('timeofday')
+  if (effectiveWeatherChart) elevatedKeys.add('weather')
+  if (effectiveTimeofdayChart) elevatedKeys.add('timeofday')
   if (statusesChart) elevatedKeys.add('statuses')
-  if (prioritiesChart) elevatedKeys.add('priorities')
+  if (effectivePrioritiesChart) elevatedKeys.add('priorities')
   if (issuesChart) elevatedKeys.add('issues')
 
   const remainingCharts = view.charts.filter((c) => !elevatedKeys.has(c.key))
@@ -303,6 +391,17 @@ function VisualizationsSection({ view }: { view: DashboardView }) {
             <span className="chart-badge">Bar Chart: Số lượng & Tỷ lệ %</span>
           </div>
           <ClassDistributionChart data={classDistData} />
+        </section>
+      )}
+
+      {/* Class review rate bar chart for Label Check */}
+      {classReviewRateData.length > 0 && (
+        <section className="visualization-card full-width" aria-labelledby="chart-class-review-rate-heading">
+          <div className="card-header-bar">
+            <h2 id="chart-class-review-rate-heading">Tỷ lệ cần review theo class (%)</h2>
+            <span className="chart-badge">Bar Chart: Review Rate (%)</span>
+          </div>
+          <ClassBarChart data={classReviewRateData} />
         </section>
       )}
 
@@ -344,31 +443,31 @@ function VisualizationsSection({ view }: { view: DashboardView }) {
       )}
 
       {/* Weather and Time of Day Donuts */}
-      {(weatherChart || timeofdayChart) && (
+      {(effectiveWeatherChart || effectiveTimeofdayChart) && (
         <div className="donut-row-grid">
-          {weatherChart && (
+          {effectiveWeatherChart && (
             <section className="visualization-card" aria-labelledby="chart-weather-heading">
               <div className="card-header-bar">
-                <h2 id="chart-weather-heading">{weatherChart.title}</h2>
+                <h2 id="chart-weather-heading">{effectiveWeatherChart.title}</h2>
                 <span className="chart-badge">Donut Chart</span>
               </div>
-              <CategoryDonutChart data={weatherChart.rows} colorScheme="weather" />
+              <CategoryDonutChart data={effectiveWeatherChart.rows} colorScheme="weather" />
             </section>
           )}
-          {timeofdayChart && (
+          {effectiveTimeofdayChart && (
             <section className="visualization-card" aria-labelledby="chart-timeofday-heading">
               <div className="card-header-bar">
-                <h2 id="chart-timeofday-heading">{timeofdayChart.title}</h2>
+                <h2 id="chart-timeofday-heading">{effectiveTimeofdayChart.title}</h2>
                 <span className="chart-badge">Donut Chart</span>
               </div>
-              <CategoryDonutChart data={timeofdayChart.rows} colorScheme="timeofday" />
+              <CategoryDonutChart data={effectiveTimeofdayChart.rows} colorScheme="timeofday" />
             </section>
           )}
         </div>
       )}
 
       {/* Quality Statuses and Priorities Donuts */}
-      {(statusesChart || prioritiesChart) && (
+      {(statusesChart || effectivePrioritiesChart) && (
         <div className="donut-row-grid">
           {statusesChart && (
             <section className="visualization-card" aria-labelledby="chart-statuses-heading">
@@ -379,13 +478,13 @@ function VisualizationsSection({ view }: { view: DashboardView }) {
               <CategoryDonutChart data={statusesChart.rows} colorScheme="status" />
             </section>
           )}
-          {prioritiesChart && (
+          {effectivePrioritiesChart && (
             <section className="visualization-card" aria-labelledby="chart-priorities-heading">
               <div className="card-header-bar">
-                <h2 id="chart-priorities-heading">{prioritiesChart.title}</h2>
+                <h2 id="chart-priorities-heading">{effectivePrioritiesChart.title}</h2>
                 <span className="chart-badge">Donut Ưu tiên</span>
               </div>
-              <CategoryDonutChart data={prioritiesChart.rows} colorScheme="priority" />
+              <CategoryDonutChart data={effectivePrioritiesChart.rows} colorScheme="priority" />
             </section>
           )}
         </div>
@@ -415,49 +514,6 @@ function VisualizationsSection({ view }: { view: DashboardView }) {
   )
 }
 
-function TargetInput({ onApply }: { onApply: (targets: unknown) => void }) {
-  const [draft, setDraft] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  return (
-    <form
-      className="target-input-card"
-      onSubmit={(event) => {
-        event.preventDefault()
-        try {
-          const targets: unknown = JSON.parse(draft)
-          setError(null)
-          onApply(targets)
-        } catch {
-          setError('Targets phải là JSON hợp lệ; không tạo targets tự động.')
-        }
-      }}
-    >
-      <div className="target-input-header">
-        <label htmlFor="target-json" className="field-label">
-          Targets do người dùng cung cấp (JSON)
-        </label>
-        <p className="field-hint">
-          Mỗi target gồm filters, unit, target và weight. Backend kiểm tra và tính kết quả; targets chưa được lưu trên server.
-        </p>
-      </div>
-      <textarea
-        id="target-json"
-        className="target-textarea"
-        rows={4}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder='[{"filters": {"class": "car"}, "unit": "images", "target": 50, "weight": 1.0}]'
-      />
-      <div className="target-actions">
-        <button type="submit" className="btn-primary">
-          Đánh giá targets tại backend
-        </button>
-        {error && <ErrorState message={error} />}
-      </div>
-    </form>
-  )
-}
-
 function cell(value: unknown) {
   if (value === null || value === undefined) return '—'
   return typeof value === 'object' ? JSON.stringify(value) : String(value)
@@ -478,6 +534,16 @@ function ServerTable({
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [annotated, setAnnotated] = useState(false)
+
+  // Scene Finder Gallery state
+  const isSceneFinder = pageName === 'scene-finder' && table.key === 'preview_images'
+  const [sceneViewMode, setSceneViewMode] = useState<'gallery' | 'table'>('gallery')
+  const [galleryPage, setGalleryPage] = useState(0)
+  const [galleryPageSize, setGalleryPageSize] = useState(8)
+
+  // Label Check Flagged Box Inspector state
+  const isAuditTable = pageName === 'labels' && table.key === 'audit'
+  const [selectedAuditIndex, setSelectedAuditIndex] = useState<number | null>(null)
 
   const columns = Object.keys(table.rows[0] ?? {})
 
@@ -500,6 +566,8 @@ function ServerTable({
       })
     : table.rows
 
+  const selectedAuditRow = selectedAuditIndex !== null ? sortedRows[selectedAuditIndex] : null
+
   return (
     <section className="server-table-card" aria-labelledby={`table-${table.key}-title`}>
       <div className="server-table-header">
@@ -507,116 +575,336 @@ function ServerTable({
           <h2 id={`table-${table.key}-title`}>{table.title}</h2>
           <span className="table-count-tag">{table.rows.length.toLocaleString()} dòng</span>
         </div>
-        {table.export_filename && (
-          <BrowserExportButton
-            tableKey={table.key}
-            page={pageName}
-            query={query}
-            label={`Tải ${table.title} CSV`}
-          />
-        )}
+        <div className="table-header-controls">
+          {isSceneFinder && (
+            <div className="view-mode-toggle-group" role="group" aria-label="Chế độ hiển thị">
+              <button
+                type="button"
+                className={`btn-view-toggle ${sceneViewMode === 'gallery' ? 'active' : ''}`}
+                onClick={() => setSceneViewMode('gallery')}
+              >
+                🖼️ Thư viện ảnh ({sortedRows.length})
+              </button>
+              <button
+                type="button"
+                className={`btn-view-toggle ${sceneViewMode === 'table' ? 'active' : ''}`}
+                onClick={() => setSceneViewMode('table')}
+              >
+                📋 Bảng chi tiết
+              </button>
+            </div>
+          )}
+          {table.export_filename && (
+            <BrowserExportButton
+              tableKey={table.key}
+              page={pageName}
+              query={query}
+              label={`Tải ${table.title} CSV`}
+            />
+          )}
+        </div>
       </div>
 
       {!sortedRows.length ? (
         <p className="table-empty-msg">Backend trả về danh sách rỗng.</p>
       ) : (
         <>
-          <div className="table-scroll-wrapper">
-            <table className="modern-data-table">
-              <caption>{table.title}</caption>
-              <thead>
-                <tr>
-                  {columns.map((column) => (
-                    <th key={column} scope="col">
-                      <button
-                        type="button"
-                        className="th-sort-btn"
-                        onClick={() => handleSort(column)}
-                        title={`Sắp xếp theo ${column}`}
-                      >
-                        <span>{column}</span>
-                        {sort === column && (
-                          <span className="sort-arrow">{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>
-                        )}
-                      </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {paginate(sortedRows, page, pageSize).map((row, i) => (
-                  <tr key={i}>
-                    {columns.map((column) => {
-                      const val = cell(row[column])
-                      const isStatus = ['status', 'priority', 'quality_status'].includes(column.toLowerCase())
-                      return (
-                        <td key={column}>
-                          {isStatus ? (
-                            <span className={`cell-pill status-${val.toLowerCase()}`}>{val}</span>
-                          ) : (
-                            val
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <Pagination
-            total={sortedRows.length}
-            page={page}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={setPageSize}
-          />
-
-          {table.key === 'preview_images' && (
-            <div className="table-preview-controls">
-              <div className="preview-select-row">
-                <label className="field-label" htmlFor="select-preview-img">
-                  Chọn ảnh xem trước
-                </label>
-                <select
-                  id="select-preview-img"
-                  className="field-select"
-                  value={selectedImage ?? ''}
-                  onChange={(event) => setSelectedImage(event.target.value || null)}
-                >
-                  <option value="">Chọn ảnh</option>
-                  {table.rows.map(
-                    (row, i) =>
-                      typeof row.image_path === 'string' && (
-                        <option key={i} value={row.image_path}>
-                          {cell(row.image_name)}
-                        </option>
-                      )
-                  )}
-                </select>
+          {/* Label Check Flagged Item Inspector */}
+          {isAuditTable && selectedAuditRow && (
+            <div className="audit-box-inspector-card" role="region" aria-label="Xem trước và kiểm tra bounding box">
+              <div className="inspector-header">
+                <div className="inspector-title-cluster">
+                  <span className="inspector-badge">Flagged Box Inspector</span>
+                  <h3>Box: {cell(selectedAuditRow.box_id)} · Class: {cell(selectedAuditRow.label)}</h3>
+                  <span className={`cell-pill status-${cell(selectedAuditRow.priority).toLowerCase()}`}>
+                    {cell(selectedAuditRow.priority)}
+                  </span>
+                  <span className={`cell-pill status-${cell(selectedAuditRow.status).toLowerCase()}`}>
+                    {cell(selectedAuditRow.status)}
+                  </span>
+                </div>
+                <div className="inspector-nav-cluster">
+                  <button
+                    type="button"
+                    className="btn-nav"
+                    disabled={selectedAuditIndex === 0}
+                    onClick={() => setSelectedAuditIndex((selectedAuditIndex ?? 0) - 1)}
+                    title="Box trước"
+                  >
+                    ← Trước
+                  </button>
+                  <span className="nav-counter">
+                    {(selectedAuditIndex ?? 0) + 1} / {sortedRows.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-nav"
+                    disabled={selectedAuditIndex === sortedRows.length - 1}
+                    onClick={() => setSelectedAuditIndex((selectedAuditIndex ?? 0) + 1)}
+                    title="Box tiếp"
+                  >
+                    Tiếp →
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-close-inspector"
+                    onClick={() => setSelectedAuditIndex(null)}
+                    title="Đóng inspector"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
-              <label className="checkbox-toggle-label">
-                <input
-                  type="checkbox"
-                  checked={annotated}
-                  onChange={(event) => setAnnotated(event.target.checked)}
-                />
-                <span>Hiển thị box CVAT (không mã hóa priority)</span>
-              </label>
-
-              {selectedImage && (
-                <div className="image-preview-embed">
+              <div className="inspector-body-grid">
+                <div className="inspector-preview-col">
                   <ImagePreview
-                    imagePath={selectedImage}
-                    annotated={annotated}
-                    alt={selectedImage}
-                    caption="Ảnh do backend cung cấp."
+                    imagePath={String(selectedAuditRow.image_name)}
+                    annotated={true}
+                    alt={String(selectedAuditRow.image_name)}
+                    caption={`Ảnh: ${cell(selectedAuditRow.image_name)} · Box: ${cell(selectedAuditRow.box_id)}`}
                   />
                 </div>
-              )}
+                <div className="inspector-meta-col">
+                  <dl className="inspector-meta-list">
+                    <dt>Ảnh</dt>
+                    <dd>{cell(selectedAuditRow.image_name)}</dd>
+                    <dt>Tín hiệu Geometry</dt>
+                    <dd>{cell(selectedAuditRow.geometry_issues) || 'Không có cảnh báo'}</dd>
+                    <dt>Tín hiệu Visual</dt>
+                    <dd>{cell(selectedAuditRow.visual_issues) || 'Không có cảnh báo'}</dd>
+                    <dt>Tọa độ Box (xtl, ytl, xbr, ybr)</dt>
+                    <dd>{`${cell(selectedAuditRow.xtl)}, ${cell(selectedAuditRow.ytl)}, ${cell(selectedAuditRow.xbr)}, ${cell(selectedAuditRow.ybr)}`}</dd>
+                    <dt>Diện tích / Ảnh (%)</dt>
+                    <dd>{typeof selectedAuditRow.area_pct === 'number' ? `${selectedAuditRow.area_pct.toFixed(2)}%` : cell(selectedAuditRow.area_pct)}</dd>
+                    <dt>Tỷ lệ khung hình (Aspect Ratio)</dt>
+                    <dd>{typeof selectedAuditRow.aspect_ratio === 'number' ? selectedAuditRow.aspect_ratio.toFixed(2) : cell(selectedAuditRow.aspect_ratio)}</dd>
+                    {selectedAuditRow.edge_density !== undefined && (
+                      <>
+                        <dt>Edge Density</dt>
+                        <dd>{cell(selectedAuditRow.edge_density)}</dd>
+                      </>
+                    )}
+                    {selectedAuditRow.foreground_contrast !== undefined && (
+                      <>
+                        <dt>Foreground Contrast</dt>
+                        <dd>{cell(selectedAuditRow.foreground_contrast)}</dd>
+                      </>
+                    )}
+                  </dl>
+                </div>
+              </div>
             </div>
+          )}
+
+          {/* Scene Finder Gallery View */}
+          {isSceneFinder && sceneViewMode === 'gallery' ? (
+            <div className="scene-finder-gallery-section">
+              <div className="gallery-toolbar-row">
+                <label className="checkbox-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={annotated}
+                    onChange={(e) => setAnnotated(e.target.checked)}
+                  />
+                  <span>Hiển thị box CVAT</span>
+                </label>
+                <div className="gallery-size-select">
+                  <label htmlFor="gallery-page-size" className="field-label-inline">
+                    Ảnh mỗi trang:
+                  </label>
+                  <select
+                    id="gallery-page-size"
+                    className="field-select-compact"
+                    value={galleryPageSize}
+                    onChange={(e) => {
+                      setGalleryPageSize(Number(e.target.value))
+                      setGalleryPage(0)
+                    }}
+                  >
+                    <option value={4}>4 ảnh</option>
+                    <option value={8}>8 ảnh</option>
+                    <option value={12}>12 ảnh</option>
+                    <option value={20}>20 ảnh</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="scene-gallery-grid">
+                {paginate(sortedRows, galleryPage, galleryPageSize).map((row, i) => {
+                  const imgName = String(row.image_name ?? '')
+                  const imgPath = typeof row.image_path === 'string' ? row.image_path : imgName
+                  const weather = String(row.weather ?? 'missing')
+                  const timeofday = String(row.timeofday ?? 'missing')
+                  const isWeatherUnresolved = ['missing', 'unknown'].includes(weather.toLowerCase())
+                  const isTodUnresolved = ['missing', 'unknown'].includes(timeofday.toLowerCase())
+
+                  return (
+                    <div
+                      key={i}
+                      role="button"
+                      tabIndex={0}
+                      className={`scene-gallery-card ${selectedImage === imgPath ? 'card-selected' : ''}`}
+                      onClick={() => setSelectedImage(imgPath)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedImage(imgPath)
+                        }
+                      }}
+                    >
+                      <div className="gallery-card-header">
+                        <strong className="gallery-card-title" title={imgName}>{imgName}</strong>
+                        <div className="gallery-card-badges">
+                          <span className={`meta-tag ${isWeatherUnresolved ? 'meta-unresolved' : 'meta-weather'}`}>
+                            Weather: {weather}
+                          </span>
+                          <span className={`meta-tag ${isTodUnresolved ? 'meta-unresolved' : 'meta-tod'}`}>
+                            Time: {timeofday}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="gallery-card-preview-area">
+                        {imgPath ? (
+                          <ImagePreview
+                            imagePath={imgPath}
+                            annotated={annotated}
+                            alt={imgName}
+                            caption={`Weather: ${weather} | Time: ${timeofday}`}
+                          />
+                        ) : (
+                          <div className="preview-placeholder">
+                            <p className="preview-note">Không có đường dẫn ảnh.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <Pagination
+                total={sortedRows.length}
+                page={galleryPage}
+                pageSize={galleryPageSize}
+                onPageChange={setGalleryPage}
+                onPageSizeChange={setGalleryPageSize}
+              />
+            </div>
+          ) : (
+            <>
+              {/* Table View */}
+              <div className="table-scroll-wrapper">
+                <table className="modern-data-table">
+                  <caption>{table.title}</caption>
+                  <thead>
+                    <tr>
+                      {isAuditTable && <th scope="col">Xem box</th>}
+                      {columns.map((column) => (
+                        <th key={column} scope="col">
+                          <button
+                            type="button"
+                            className="th-sort-btn"
+                            onClick={() => handleSort(column)}
+                            title={`Sắp xếp theo ${column}`}
+                          >
+                            <span>{column}</span>
+                            {sort === column && (
+                              <span className="sort-arrow">{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>
+                            )}
+                          </button>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginate(sortedRows, page, pageSize).map((row, i) => (
+                      <tr key={i} className={isAuditTable && selectedAuditIndex === page * pageSize + i ? 'row-selected' : ''}>
+                        {isAuditTable && (
+                          <td className="cell-action">
+                            <button
+                              type="button"
+                              className="btn-inspect-box"
+                              onClick={() => setSelectedAuditIndex(page * pageSize + i)}
+                              title="Xem trước ảnh và bounding box của hàng này"
+                            >
+                              👁️ Xem box
+                            </button>
+                          </td>
+                        )}
+                        {columns.map((column) => {
+                          const val = cell(row[column])
+                          const isStatus = ['status', 'priority', 'quality_status'].includes(column.toLowerCase())
+                          return (
+                            <td key={column}>
+                              {isStatus ? (
+                                <span className={`cell-pill status-${val.toLowerCase()}`}>{val}</span>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <Pagination
+                total={sortedRows.length}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
+
+              {table.key === 'preview_images' && (
+                <div className="table-preview-controls">
+                  <div className="preview-select-row">
+                    <label className="field-label" htmlFor="select-preview-img">
+                      Chọn ảnh xem trước
+                    </label>
+                    <select
+                      id="select-preview-img"
+                      className="field-select"
+                      value={selectedImage ?? ''}
+                      onChange={(event) => setSelectedImage(event.target.value || null)}
+                    >
+                      <option value="">Chọn ảnh</option>
+                      {table.rows.map(
+                        (row, i) =>
+                          typeof row.image_path === 'string' && (
+                            <option key={i} value={row.image_path}>
+                              {cell(row.image_name)}
+                            </option>
+                          )
+                      )}
+                    </select>
+                  </div>
+
+                  <label className="checkbox-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={annotated}
+                      onChange={(event) => setAnnotated(event.target.checked)}
+                    />
+                    <span>Hiển thị box CVAT (không mã hóa priority)</span>
+                  </label>
+
+                  {selectedImage && (
+                    <div className="image-preview-embed">
+                      <ImagePreview
+                        imagePath={selectedImage}
+                        annotated={annotated}
+                        alt={selectedImage}
+                        caption="Ảnh do backend cung cấp."
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </>
       )}

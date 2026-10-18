@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: cvat-dashboard-mvp
+    runtime: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: CVAT_UPLOAD_DIR
+        value: /var/data/cvat_storage
+      - key: CVAT_UPLOAD_SECRET
+        generateValue: true
+      - key: CVAT_UPLOAD_OWNER_KEYS_JSON
+        sync: false
+      - key: CVAT_ENFORCE_LOCAL
+        value: "0"
+      - key: CVAT_MIN_FREE_BYTES
+        value: "0"
+      - key: CVAT_REACT_DIST
+        value: /app/frontend/dist
+      - key: CVAT_ALLOWED_ORIGINS
+        sync: false

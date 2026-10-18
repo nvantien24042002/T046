@@ -5,7 +5,7 @@ The source is an existing analysis, never an implicit analyze or mock fallback.
 from collections import Counter, defaultdict
 from statistics import median
 import math
-from typing import Literal
+from typing import Literal, Any
 import json
 import pandas as pd
 from core.coverage_dynamic import build_universe, choices, evaluate_targets, recommendations, generate_targets, DIMS
@@ -36,15 +36,22 @@ class TargetGeneration(BaseModel):
     weight: float = Field(default=1.0, gt=0)
     include_unobserved: bool = False
 
+def _matches_filter(val: Any, target: list[str] | str | None) -> bool:
+    if target is None:
+        return True
+    if isinstance(target, list):
+        return val in target
+    return val == target
+
 class DashboardQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
-    weather: str | None = Field(default=None, max_length=512)
-    timeofday: str | None = Field(default=None, max_length=512)
+    weather: list[str] | str | None = Field(default=None)
+    timeofday: list[str] | str | None = Field(default=None)
     keyword: str | None = Field(default=None, max_length=512)
     targets: list[CoverageTarget] | None = Field(default=None, max_length=250)
     generate: TargetGeneration | None = None
-    class_label: str | None = Field(default=None, max_length=512)
-    priority: Literal["HIGH", "MEDIUM", "LOW"] | None = None
+    class_label: list[str] | str | None = Field(default=None)
+    priority: list[Literal["HIGH", "MEDIUM", "LOW"]] | Literal["HIGH", "MEDIUM", "LOW"] | None = None
     review_scope: Literal["review"] | None = None
     min_count: int | None = Field(default=None, ge=0)
     min_share: float | None = Field(default=None, ge=0, le=100)
@@ -106,8 +113,8 @@ def project_dashboard(request, payload, summary):
         if not rows: result.update(state="empty", reason="Không có ảnh khớp bộ lọc.")
         return result
     if request.page == "labels":
-        rows = [r for r in audit if (request.query.class_label is None or r["label"] == request.query.class_label)
-            and (request.query.priority is None or r["priority"] == request.query.priority)
+        rows = [r for r in audit if _matches_filter(r["label"], request.query.class_label)
+            and _matches_filter(r["priority"], request.query.priority)
             and (request.query.review_scope is None or r["status"].startswith("REVIEW"))]
         groups = []
         grouped = defaultdict(list)
@@ -230,8 +237,8 @@ def project_dashboard(request, payload, summary):
         return result
     if request.page == "scene-finder":
         images = [{**r, "weather": r["weather"].strip() or "missing", "timeofday": r["timeofday"].strip() or "missing"} for r in parsed["distribution_images"]]
-        filtered = [r for r in images if (request.query.weather is None or r["weather"] == request.query.weather)
-            and (request.query.timeofday is None or r["timeofday"] == request.query.timeofday)
+        filtered = [r for r in images if _matches_filter(r["weather"], request.query.weather)
+            and _matches_filter(r["timeofday"], request.query.timeofday)
             and (not request.query.keyword or request.query.keyword.strip().casefold() in r["image_name"].casefold())]
         result["metrics"] = [metric("matched", "Ảnh khớp bộ lọc", len(filtered)), metric("total", "Tổng ảnh trong XML", len(images)),
             metric("unresolved", "Ảnh có metadata chưa rõ", sum(r["weather"] in ("missing", "unknown") or r["timeofday"] in ("missing", "unknown") for r in images))]

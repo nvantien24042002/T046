@@ -11,6 +11,7 @@ import {
   Legend,
   CartesianGrid,
 } from 'recharts'
+import { aggregateOcclusion, type OcclusionAggregated, type OcclusionRow } from './occlusion'
 
 const COLORS = {
   PASS: '#10b981',
@@ -333,19 +334,7 @@ export function BoxSizeChart({ data }: { data: BoxSizeItem[] }) {
   )
 }
 
-export type OcclusionRow = {
-  label: string
-  occluded: boolean | string | number
-  boxes: number
-}
-
-interface OcclusionAggregated {
-  label: string
-  occluded: number
-  unoccluded: number
-  total: number
-  rate: number
-}
+export type { OcclusionRow } from './occlusion'
 
 interface OcclusionTooltipProps {
   active?: boolean
@@ -365,6 +354,9 @@ function OcclusionTooltip({ active, payload }: OcclusionTooltipProps) {
       <p className="tooltip-row">
         <span>Bị che khuất:</span> <strong>{item.occluded} box</strong>
       </p>
+      {item.unknown > 0 && <p className="tooltip-row">
+        <span>Chưa xác định:</span> <strong>{item.unknown} box</strong>
+      </p>}
       <p className="tooltip-row">
         <span>Tỷ lệ che khuất:</span> <strong>{item.rate}%</strong>
       </p>
@@ -374,29 +366,12 @@ function OcclusionTooltip({ active, payload }: OcclusionTooltipProps) {
 
 export function OcclusionChart({ rows }: { rows: OcclusionRow[] }) {
   if (!rows.length) return <p>Không có dữ liệu để hiển thị biểu đồ.</p>
-  const classMap = new Map<string, { occluded: number; unoccluded: number }>()
-  for (const r of rows) {
-    const isOccluded = r.occluded === true || r.occluded === 'true' || r.occluded === 1
-    const entry = classMap.get(r.label) ?? { occluded: 0, unoccluded: 0 }
-    if (isOccluded) entry.occluded += r.boxes
-    else entry.unoccluded += r.boxes
-    classMap.set(r.label, entry)
-  }
-
-  const data: OcclusionAggregated[] = Array.from(classMap.entries()).map(([label, stats]) => {
-    const total = stats.occluded + stats.unoccluded
-    return {
-      label,
-      occluded: stats.occluded,
-      unoccluded: stats.unoccluded,
-      total,
-      rate: total > 0 ? Number(((stats.occluded / total) * 100).toFixed(1)) : 0,
-    }
-  }).sort((a, b) => b.total - a.total)
+  const data = aggregateOcclusion(rows)
 
   const totalOccluded = data.reduce((sum, d) => sum + d.occluded, 0)
   const totalUnoccluded = data.reduce((sum, d) => sum + d.unoccluded, 0)
-  const grandTotal = totalOccluded + totalUnoccluded
+  const totalUnknown = data.reduce((sum, d) => sum + d.unknown, 0)
+  const grandTotal = totalOccluded + totalUnoccluded + totalUnknown
   const overallRate = grandTotal > 0 ? Number(((totalOccluded / grandTotal) * 100).toFixed(1)) : 0
 
   return (
@@ -405,6 +380,7 @@ export function OcclusionChart({ rows }: { rows: OcclusionRow[] }) {
         <span>Tổng quan che khuất:</span>
         <strong className="badge-occluded">{totalOccluded.toLocaleString()} box bị che ({overallRate}%)</strong>
         <span className="badge-clear">{totalUnoccluded.toLocaleString()} box rõ ràng</span>
+        {totalUnknown > 0 && <span>{totalUnknown.toLocaleString()} box chưa xác định</span>}
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={data} margin={{ top: 20, right: 20, left: 0, bottom: 30 }}>
@@ -415,6 +391,7 @@ export function OcclusionChart({ rows }: { rows: OcclusionRow[] }) {
           <Legend wrapperStyle={{ paddingTop: 8 }} />
           <Bar dataKey="unoccluded" name="Rõ ràng (Không che)" stackId="a" fill="#10b981" />
           <Bar dataKey="occluded" name="Bị che khuất (Occluded)" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+          {totalUnknown > 0 && <Bar dataKey="unknown" name="Chưa xác định (Unknown)" stackId="a" fill="#94a3b8" radius={[4, 4, 0, 0]} />}
         </BarChart>
       </ResponsiveContainer>
     </div>
