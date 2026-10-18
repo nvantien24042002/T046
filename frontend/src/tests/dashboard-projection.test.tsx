@@ -61,6 +61,9 @@ it.each<DashboardPage>(['overview', 'quality', 'labels', 'distribution', 'review
   }
   render(<VerifiedResultsProvider><Initializer /><BackendDashboard page={page} /></VerifiedResultsProvider>)
   expect(await screen.findByText('431')).toBeVisible()
+  expect(screen.queryByText('dataset-a')).not.toBeInTheDocument()
+  expect(screen.queryByText('a'.repeat(64))).not.toBeInTheDocument()
+  expect(screen.queryByText(/Phiên trực tiếp|Chữ ký & Chẩn đoán|Backend Realtime Engine/)).not.toBeInTheDocument()
   expect(screen.queryByText('0')).not.toBeInTheDocument()
 })
 it('clears a previous projection while a replacement dataset request is in flight', async () => {

@@ -48,6 +48,21 @@ it('refreshes the owned dataset catalog after publication within the same reques
   fireEvent.click(screen.getByText('Begin upload'))
   await waitFor(() => expect(mock.json).toHaveBeenCalledTimes(2))
   fireEvent.click(screen.getByText('Publish result'))
-  expect(await screen.findByRole('button', { name: 'a · ready' })).toBeVisible()
+  expect(await screen.findByRole('button', { name: 'Bộ dữ liệu 1' })).toBeVisible()
   expect(mock.json).toHaveBeenCalledTimes(3)
+})
+it('hides internal identities while selecting datasets with their original IDs', async () => {
+  const first = '1d072a13-c0b7-43c7-9053-1801f0732dc3'
+  const second = '998c79a5-404c-483e-b81f-eebca8c3e995'
+  mock.json.mockImplementation(async (path: string) => path === '/datasets'
+    ? { datasets: [{ dataset_id: first, state: 'ready' }, { dataset_id: second, state: 'ready' }] }
+    : summary(second))
+  mock.result.mockResolvedValue(detail(second))
+  const { container } = render(<BrowserSessionProvider><BrowserDatasetPanel /></BrowserSessionProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Bộ dữ liệu 2' }))
+  await waitFor(() => expect(mock.result).toHaveBeenCalledWith(second, expect.any(AbortSignal)))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Bộ dữ liệu 2' })).toHaveAttribute('aria-pressed', 'true'))
+  expect(container.innerHTML).not.toContain(first)
+  expect(container.innerHTML).not.toContain(second)
+  expect(screen.queryByText(/Làm mới danh sách session|Phiên Dataset/)).not.toBeInTheDocument()
 })

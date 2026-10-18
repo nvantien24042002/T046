@@ -220,7 +220,8 @@ describe('historical reference pages (not production projections)', () => {
   ])('%s clears old content on loading and displays API errors without fixtures', (_name, Page) => {
     const state = mountPage(<Page />)
     act(() => state().setManualResult(analysis('dataset-a'), summary('dataset-a'), 'token'))
-    expect(screen.getByText('dataset-a', { selector: 'code' })).toBeVisible()
+    expect(screen.getByText('Đã tải kết quả phân tích')).toBeVisible()
+    expect(screen.queryByText('dataset-a', { selector: 'code' })).not.toBeInTheDocument()
     let request = 0
     act(() => { request = state().beginRequest('dataset-b') })
     expect(screen.queryByText('dataset-a', { selector: 'code' })).not.toBeInTheDocument()

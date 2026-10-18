@@ -107,7 +107,7 @@ describe('SceneFinder page', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByText(/Chưa có phiên dataset được cấp quyền/)).toBeInTheDocument()
+    expect(screen.getByText(/Chưa có kết quả phân tích/)).toBeInTheDocument()
   })
 
   it('filters images by weather, timeofday, and keyword in backend mode', () => {

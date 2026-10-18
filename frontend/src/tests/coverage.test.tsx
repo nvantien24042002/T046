@@ -282,7 +282,7 @@ describe('Coverage page UI', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByText(/Chưa có phiên dataset được cấp quyền/)).toBeInTheDocument()
+    expect(screen.getByText(/Chưa có kết quả phân tích/)).toBeInTheDocument()
   })
 
   it('renders verified dataset data in backend mode', () => {

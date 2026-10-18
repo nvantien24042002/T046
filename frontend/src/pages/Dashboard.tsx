@@ -25,6 +25,6 @@ export function Dashboard() {
     
     <DatasetUploader />
 
-    <section aria-labelledby="connection-heading"><h2 id="connection-heading">Kết nối Backend</h2><p>Chỉ kiểm tra dịch vụ qua GET /health. Không tải dataset hoặc gửi credentials.</p><button disabled={connection.kind === 'loading'} onClick={() => { setConnection({ kind: 'loading' }); setAttempt((value) => value + 1) }}>Kiểm tra kết nối</button>{connection.kind === 'loading' && <LoadingState />}{connection.kind === 'error' && <ErrorState message={connection.message} />}{connection.kind === 'success' && <p role="status">Backend sẵn sàng · Stage {connection.health.stage}. Chưa có dataset được chọn.</p>}</section>
+    <section aria-labelledby="connection-heading"><h2 id="connection-heading">Trạng thái dịch vụ</h2><p>Kiểm tra khả năng kết nối trước khi tải lên và phân tích dữ liệu.</p><button disabled={connection.kind === 'loading'} onClick={() => { setConnection({ kind: 'loading' }); setAttempt((value) => value + 1) }}>Kiểm tra kết nối</button>{connection.kind === 'loading' && <LoadingState />}{connection.kind === 'error' && <ErrorState message={connection.message} />}{connection.kind === 'success' && <p role="status">Dịch vụ sẵn sàng. Chưa có dataset được chọn.</p>}</section>
   </>
 }

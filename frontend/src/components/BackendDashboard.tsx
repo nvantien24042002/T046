@@ -155,16 +155,12 @@ function DashboardSession({ page }: { page: DashboardPage }) {
 
   return (
     <>
-      <div className="session-status-ribbon">
-        <div className="session-engine-status">
-          <span className="engine-pulse-dot" aria-hidden="true" />
-          <span className="engine-label">Backend Realtime Engine · Nguồn dữ liệu thời gian thực</span>
-        </div>
+      <div className="dashboard-toolbar">
         <button
           type="button"
           className="btn-compact-refresh"
           onClick={handleRefresh}
-          title="Tải lại dữ liệu trang từ máy chủ Backend"
+          title="Tải lại dữ liệu trang"
         >
           <span className="refresh-icon" aria-hidden="true">↻</span>
           <span>Làm mới</span>
@@ -178,7 +174,7 @@ function DashboardSession({ page }: { page: DashboardPage }) {
           <ErrorState message={error} />
           <div className="error-actions-cluster">
             <button className="btn-primary" onClick={handleRefresh}>
-              Thử lại API
+              Thử lại
             </button>
             <button className="btn-secondary" onClick={() => update({})}>
               Xóa bộ lọc và tham số

@@ -8,7 +8,7 @@ it('stops unapproved dataset integration without calling endpoints or substituti
   const transport = vi.fn()
   vi.stubGlobal('fetch', transport)
   render(<Overview />)
-  expect(screen.getByText(/Chưa có phiên dataset được cấp quyền/)).toBeVisible()
+  expect(screen.getByText(/Chưa có kết quả phân tích/)).toBeVisible()
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   expect(screen.queryByRole('group', { name: 'Tổng ảnh' })).not.toBeInTheDocument()
   expect(load).not.toHaveBeenCalled()

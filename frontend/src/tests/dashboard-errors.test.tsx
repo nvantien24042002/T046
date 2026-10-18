@@ -40,7 +40,7 @@ describe('dashboard real API boundary', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Backend returned an invalid response.')
     expect(screen.queryByText('Khám phá giao diện mẫu')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Kiểm tra kết nối' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Backend sẵn sàng')
+    expect(await screen.findByRole('status')).toHaveTextContent('Dịch vụ sẵn sàng')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(transport).toHaveBeenCalledTimes(2)
   })

@@ -1088,11 +1088,11 @@ h3 {
 }
 
 
-/* Session Status & Refresh Action Ribbon */
-.session-status-ribbon {
+/* Page actions */
+.dashboard-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 14px;

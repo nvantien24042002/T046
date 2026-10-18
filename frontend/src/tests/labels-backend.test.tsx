@@ -7,7 +7,7 @@ it('blocks unapproved Label Check integration without requests or fixture fallba
   const transport = vi.fn(), load = vi.fn()
   vi.stubGlobal('fetch', transport)
   render(<LabelCheck />)
-  expect(screen.getByText(/Chưa có phiên dataset được cấp quyền/)).toBeVisible()
+  expect(screen.getByText(/Chưa có kết quả phân tích/)).toBeVisible()
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
   expect(load).not.toHaveBeenCalled()

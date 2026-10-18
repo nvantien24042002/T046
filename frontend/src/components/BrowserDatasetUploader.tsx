@@ -347,7 +347,6 @@ export function BrowserDatasetUploader() {
         <div className="upload-result-card" role="region" aria-label="Kết quả tải lên">
           <div className="result-header">
             <h3>✓ Tải lên và nạp dữ liệu thành công!</h3>
-            <span className="dataset-tag">ID: {result.datasetId}</span>
           </div>
 
           <div className="result-metrics">
