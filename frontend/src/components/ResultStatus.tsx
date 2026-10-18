@@ -12,7 +12,5 @@ export function ResultIdentity() {
   const state = useVerifiedResults()
   const result = state?.activeResult
   if (!result) return null
-  return <p>Dataset: <code>{result.payload.dataset_id}</code> · {result.descriptor
-    ? <>Result do backend cung cấp: <code>{result.descriptor.result_id}</code></>
-    : 'Kết quả analyze trực tiếp; chưa có metadata xác thực nguồn dữ liệu.'}</p>
+  return <p role="status">Đang hiển thị kết quả của bộ dữ liệu đã chọn.</p>
 }

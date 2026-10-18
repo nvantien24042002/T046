@@ -6,7 +6,8 @@ import { EmptyState, ErrorState, LoadingState } from './States'
 import { ClassBarChart } from './Charts'
 import { BrowserExportButton } from './BrowserExportButton'
 import { Pagination, paginate } from './Pagination'
-import { ImagePreview } from './ImagePreview'
+import { ImageGallery } from './ImageGallery'
+import { publicText, publicColumn, publicCell } from './presentation'
 import type { DatasetSummary } from '../api/datasets'
 
 const titles: Record<DashboardPage, string> = { overview: 'Tổng quan dữ liệu', quality: 'Image Quality', labels: 'Label Check A+B',
@@ -54,29 +55,32 @@ function DashboardSession({ page }: { page: DashboardPage }) {
     return () => { active = false; controller.abort() }
   }, [page, result, token, query, attempt, state.readDashboard])
   const update = (next: DashboardQuery) => { setView(null); setError(null); setQuery(next) }
-  return <>
+  return <div className="dashboard-page-container" data-page={page} data-state={view ? view.state : 'loading'}>
     <p>Các thông số và kết quả nghiệp vụ do backend cung cấp. Không có dữ liệu mẫu thay thế.</p>
     {canSubmitTargets && <TargetInput onApply={(targets) => update({ ...query, targets })} />}
     {error ? <><ErrorState message={error} /><button onClick={() => { setError(null); setView(null); setAttempt(attempt + 1) }}>Thử lại API</button>
       <button onClick={() => update({})}>Xóa bộ lọc và tham số</button></>
       : !view ? <LoadingState /> : <>
-        {view.state !== 'ready' && <EmptyState>{view.reason ?? 'Chưa có kết quả phù hợp.'}</EmptyState>}
-        {view.notes.map((note, i) => <p key={i}>{note}</p>)}
+        {view.state !== 'ready' && <EmptyState>{publicText(view.reason ?? 'Chưa có kết quả phù hợp.')}</EmptyState>}
+        {view.notes.map((note, i) => <p key={i}>{publicText(note)}</p>)}
         {view.state !== 'unsupported' && <>
         {view.parameters && <ServerParameters parameters={view.parameters} onApply={(values) => update({ ...query, ...values })} />}
         {view.keyword_search && <KeywordInput onApply={(keyword) => update({ ...query, keyword: keyword || null })} />}
-        {view.controls.map((control) => <label key={control.key}>{control.label}
-          <select value={typeof query[control.key] === 'string' ? query[control.key] as string : control.value ?? ''}
+        {view.controls.length > 0 && <div className="dashboard-controls">{view.controls.map((control) => <label key={control.key}>{publicText(control.label)}
+          <select aria-label={publicText(control.label)} value={typeof query[control.key] === 'string' ? query[control.key] as string : control.value ?? ''}
             onChange={(event) => update({ ...query, [control.key]: event.target.value || null })}>
-            <option value="">Tất cả</option>{control.choices.map((choice) => <option key={choice}>{choice}</option>)}
-          </select></label>)}
-        <dl className="overview-metrics">{view.metrics.map((metric) => <div key={metric.key} role="group" aria-label={metric.label}>
-          <dt>{metric.label}</dt><dd>{metric.value === null ? 'Chưa có kết quả' : String(metric.value)}</dd></div>)}</dl>
-        {view.charts.map((chart) => <section key={chart.key}><h2>{chart.title}</h2><ClassBarChart data={chart.rows} /></section>)}
+            <option value="">Tất cả</option>{control.choices.map((choice) => <option key={choice}>{publicText(choice)}</option>)}
+          </select></label>)}</div>}
+        <dl className="overview-metrics">{view.metrics.map((metric) => <div key={metric.key} role="group" aria-label={publicText(metric.label)}>
+          <dt>{publicText(metric.label)}</dt><dd>{metric.value === null ? 'Chưa có kết quả' : publicCell(metric.value)}</dd></div>)}</dl>
+        {view.charts.length > 0 && <div className="dashboard-charts-grid">{view.charts.map((chart) => {
+          const seriesLabel = chart.key.includes('box') ? 'Số lượng box' : chart.key.includes('image') ? 'Số lượng ảnh' : 'Số lượng'
+          return <section key={chart.key} className="chart-card"><h2>{publicText(chart.title)}</h2><ClassBarChart data={chart.rows.map((row) => ({ ...row, name: publicText(row.name) }))} seriesName={seriesLabel} /></section>
+        })}</div>}
         {view.tables.map((table) => <ServerTable key={table.key} table={table} pageName={page} query={query} />)}
         </>}
       </>}
-  </>
+  </div>
 }
 
 function KeywordInput({ onApply }: { onApply: (keyword: string) => void }) {
@@ -105,35 +109,26 @@ function ServerParameters({ parameters, onApply }: {
 }) {
   const [draft, setDraft] = useState(() => Object.fromEntries(parameters.map((p) => [p.key, String(p.value)])))
   return <form onSubmit={(event) => { event.preventDefault(); onApply(Object.fromEntries(parameters.map((p) => [p.key, Number(draft[p.key])])) ) }}>
-    {parameters.map((parameter) => <label key={parameter.key}>{parameter.label}<input type="number" step="any" required
+    {parameters.map((parameter) => <label key={parameter.key}>{publicText(parameter.label)}<input type="number" step="any" required
       value={draft[parameter.key] ?? ''} onChange={(event) => setDraft({ ...draft, [parameter.key]: event.target.value })} /></label>)}
     <button type="submit">Áp dụng tham số tại backend</button>
   </form>
 }
 
-function cell(value: unknown) {
-  if (value === null || value === undefined) return '—'
-  return typeof value === 'object' ? JSON.stringify(value) : String(value)
-}
 function ServerTable({ table, pageName, query }: { table: DashboardView['tables'][number]; pageName: DashboardPage; query: DashboardQuery }) {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
   const [sort, setSort] = useState<string | null>(null)
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [annotated, setAnnotated] = useState(false)
-  const columns = Object.keys(table.rows[0] ?? {})
-  const rows = sort ? [...table.rows].sort((a, b) => cell(a[sort]).localeCompare(cell(b[sort]), undefined, { numeric: true })) : table.rows
-  return <section><h2>{table.title}</h2>
-    {table.export_filename && <BrowserExportButton tableKey={table.key} page={pageName} query={query} label={`Tải ${table.title} CSV`} />}
+  const columns = [...new Set(table.rows.flatMap((row) => Object.keys(row)))].filter(publicColumn)
+  const rows = sort ? [...table.rows].sort((a, b) => publicCell(a[sort]).localeCompare(publicCell(b[sort]), undefined, { numeric: true })) : table.rows
+  return <section className="server-table"><h2>{publicText(table.title)}</h2>
+    {table.export_filename && <BrowserExportButton tableKey={table.key} page={pageName} query={query} label={`Tải ${publicText(table.title)} CSV`} />}
     {!rows.length ? <p>Backend trả về danh sách rỗng.</p> : <>
-      <table><caption>{table.title}</caption><thead><tr>{columns.map((column) => <th key={column} scope="col">
-        <button onClick={() => { setSort(column); setPage(0) }}>{column}</button></th>)}</tr></thead>
-        <tbody>{paginate(rows, page, pageSize).map((row, i) => <tr key={i}>{columns.map((column) => <td key={column}>{cell(row[column])}</td>)}</tr>)}</tbody></table>
+      {table.key === 'preview_images' ? <ImageGallery rows={paginate(rows, page, pageSize)} /> : <div className="table-scroll" role="region" aria-label={publicText(table.title)}><table><caption>{publicText(table.title)}</caption><thead><tr>{columns.map((column) => <th key={column} scope="col">
+        <button onClick={() => { setSort(column); setPage(0) }}>{publicText(column)}</button></th>)}</tr></thead>
+        <tbody>{paginate(rows, page, pageSize).map((row, i) => <tr key={i}>{columns.map((column) => <td key={column}>{publicCell(row[column])}</td>)}</tr>)}</tbody></table></div>}
       <Pagination total={rows.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
-      {table.key === 'preview_images' && <><label>Chọn ảnh xem trước<select value={selectedImage ?? ''} onChange={(event) => setSelectedImage(event.target.value || null)}>
-        <option value="">Chọn ảnh</option>{table.rows.map((row, i) => typeof row.image_path === 'string' && <option key={i} value={row.image_path}>{cell(row.image_name)}</option>)}</select></label>
-        <label><input type="checkbox" checked={annotated} onChange={(event) => setAnnotated(event.target.checked)} />Hiển thị box CVAT (không mã hóa priority)</label>
-        {selectedImage && <ImagePreview imagePath={selectedImage} annotated={annotated} alt={selectedImage} caption="Ảnh do backend cung cấp." />}</>}
+
     </>}
   </section>
 }

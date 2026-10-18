@@ -220,10 +220,10 @@ describe('historical reference pages (not production projections)', () => {
   ])('%s clears old content on loading and displays API errors without fixtures', (_name, Page) => {
     const state = mountPage(<Page />)
     act(() => state().setManualResult(analysis('dataset-a'), summary('dataset-a'), 'token'))
-    expect(screen.getByText('dataset-a', { selector: 'code' })).toBeVisible()
+    expect(screen.getByText('Đang hiển thị kết quả của bộ dữ liệu đã chọn.')).toBeVisible()
     let request = 0
     act(() => { request = state().beginRequest('dataset-b') })
-    expect(screen.queryByText('dataset-a', { selector: 'code' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Đang hiển thị kết quả của bộ dữ liệu đã chọn.')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toBeVisible()
     act(() => state().failRequest(request, 'API failed for dataset-b'))
     expect(screen.getByRole('alert')).toHaveTextContent('API failed for dataset-b')

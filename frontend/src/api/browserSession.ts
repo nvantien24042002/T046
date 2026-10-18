@@ -13,6 +13,7 @@ async function raw(path: string, init: RequestInit = {}) {
   const response = await fetch(browserPrefix + path, { ...init, credentials: 'same-origin', redirect: 'error', cache: 'no-store',
     headers: { ...browserHeaders, ...(init.body && typeof init.body === 'string' ? { 'Content-Type': 'application/json' } : {}), ...init.headers } })
   if (!response.ok) {
+    if (response.status === 401) boot = null
     let code = 'REQUEST_FAILED'
     try { const d: unknown = await response.json(); const parsed = z.object({ error: z.object({ code: z.string().regex(/^[A-Z0-9_]{1,64}$/) }) }).safeParse(d); if (parsed.success) code = parsed.data.error.code } catch { /* fixed public error */ }
     throw new BrowserApiError(response.status, code)
